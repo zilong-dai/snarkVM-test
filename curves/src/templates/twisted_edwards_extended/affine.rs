@@ -13,9 +13,13 @@
 // limitations under the License.
 
 use crate::{
+    bls12_377::G1Affine,
+    edwards_bls12::EdwardsParameters384,
+    edwards_bls12::Fq384,
     impl_edwards_curve_serializer,
     templates::twisted_edwards_extended::Projective,
     traits::{AffineCurve, ProjectiveCurve, TwistedEdwardsParameters as Parameters},
+    MontgomeryParameters,
 };
 use snarkvm_fields::{Field, One, PrimeField, SquareRootField, Zero};
 use snarkvm_utilities::{
@@ -23,10 +27,7 @@ use snarkvm_utilities::{
     io::{Read, Result as IoResult, Write},
     rand::Uniform,
     serialize::*,
-    FromBytes,
-    ToBits,
-    ToBytes,
-    ToMinimalBits,
+    FromBytes, ToBits, ToBytes, ToMinimalBits,
 };
 
 use core::{
@@ -44,6 +45,44 @@ pub struct Affine<P: Parameters> {
     pub x: P::BaseField,
     pub y: P::BaseField,
     pub t: P::BaseField,
+}
+
+impl Affine<EdwardsParameters384> {
+    pub fn to_sw_affine(&self) -> G1Affine {
+        assert_eq!(self.x * self.y, self.t);
+        // let (te_x, te_y) = (self.x, self.y);
+        type F = Fq384;
+
+        let one = F::one();
+        let two = F::one() + F::one();
+        let three = F::one() + F::one() + F::one();
+        let mga: F = <EdwardsParameters384 as MontgomeryParameters>::MONTGOMERY_A;
+        let mgb: F = <EdwardsParameters384 as MontgomeryParameters>::MONTGOMERY_B;
+
+        let tea = (mga + two) * mgb.inverse().unwrap();
+        // let ted = (mga - two) * mgb.inverse().unwrap();
+
+        let tee_x = self.x;
+        let tee_y = self.y;
+
+        // tee -> te
+        let te_x = tee_x * (F::zero() - tea).sqrt().unwrap().inverse().unwrap();
+        let te_y = tee_y;
+
+        // te -> mg
+        let numerator = one + te_y;
+        let denominator = one - te_y;
+
+        let mg_x = numerator * (denominator.inverse().unwrap());
+        let mg_y = numerator * ((denominator * te_x).inverse().unwrap());
+
+        // mg -> sw
+        let sw_x = mg_x * (mgb.inverse().unwrap()) + mga * ((mgb * three).inverse().unwrap());
+
+        let sw_y = mg_y * (mgb.inverse().unwrap());
+
+        G1Affine::new(sw_x, sw_y, false)
+    }
 }
 
 impl<P: Parameters> Affine<P> {
@@ -126,7 +165,11 @@ impl<P: Parameters> AffineCurve for Affine<P> {
     fn from_random_bytes(bytes: &[u8]) -> Option<Self> {
         Self::BaseField::from_random_bytes_with_flags::<EdwardsFlags>(bytes).and_then(|(x, flags)| {
             // If x is valid and is zero, then parse this point as infinity.
-            if x.is_zero() { Some(Self::zero()) } else { Self::from_x_coordinate(x, flags.is_positive()) }
+            if x.is_zero() {
+                Some(Self::zero())
+            } else {
+                Self::from_x_coordinate(x, flags.is_positive())
+            }
         })
     }
 

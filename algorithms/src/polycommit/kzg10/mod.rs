@@ -176,6 +176,7 @@ impl<E: PairingEngine> KZG10<E> {
         let evaluations = evaluations.iter().map(|e| e.to_bigint()).collect::<Vec<_>>();
         let msm_time = start_timer!(|| "MSM to compute commitment to plaintext poly");
         let mut commitment = VariableBase::msm(&lagrange_basis.lagrange_basis_at_beta_g, &evaluations);
+        // println!("commitment {:?}", commitment.to_affine());
         end_timer!(msm_time);
 
         let mut randomness = KZGRandomness::empty();

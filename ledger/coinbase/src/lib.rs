@@ -35,7 +35,7 @@ use snarkvm_algorithms::{
     msm::VariableBase,
     polycommit::kzg10::{KZGCommitment, UniversalParams as SRS, KZG10},
 };
-use snarkvm_curves::PairingEngine;
+use snarkvm_curves::{PairingEngine, ProjectiveCurve};
 use snarkvm_fields::{PrimeField, Zero};
 use snarkvm_synthesizer_snark::UniversalSRS;
 use snarkvm_utilities::cfg_zip_fold;
@@ -160,6 +160,72 @@ impl<N: Network> CoinbasePuzzle<N> {
         debug_assert!(KZG10::check(&pk.verifying_key, &commitment, point, product_eval_at_point, &proof)?);
 
         Ok(ProverSolution::new(partial_solution, proof))
+    }
+
+    pub fn precompute(&self, epoch_challenge: &EpochChallenge<N>) -> Result<Vec<<N::PairingCurve as PairingEngine>::G1Affine>> {
+        let pk: &Arc<CoinbaseProvingKey<N>> = match self {
+            Self::Prover(coinbase_proving_key) => coinbase_proving_key,
+            Self::Verifier(_) =>  bail!("Cannot prove the coinbase puzzle with a verifier"),
+        };
+
+        let c_evaluations = epoch_challenge.epoch_polynomial_evaluations().evaluations.clone();
+
+        let pk_lag_basis = pk.lagrange_basis_at_beta_g.clone();
+        let mut c_g : Vec<<N::PairingCurve as PairingEngine>::G1Projective>  = Vec::new();
+        for i in 0..c_evaluations.len(){
+            c_g.push(pk_lag_basis[i]*c_evaluations[i]);
+        }
+        
+        pk.product_domain.fft_in_place(&mut c_g);
+        let mut ghat = Vec::new();
+        for i in 0..c_evaluations.len()/2{
+            ghat.push(c_g[i].clone().to_affine());
+        }
+        Ok(ghat)
+
+    }
+    pub fn prove2(
+        &self,
+        epoch_challenge: &EpochChallenge<N>,
+        address: Address<N>,
+        nonce: u64,
+        minimum_proof_target: Option<u64>,
+    ) -> Result<(u32, PartialSolution<N>)> {
+        let pk: &Arc<CoinbaseProvingKey<N>> = match self {
+            Self::Prover(coinbase_proving_key) => coinbase_proving_key,
+            Self::Verifier(_) =>  bail!("Cannot prove the coinbase puzzle with a verifier"),
+        };
+
+        let c_evaluations = epoch_challenge.epoch_polynomial_evaluations().evaluations.clone();
+
+        let pk_lag_basis = pk.lagrange_basis_at_beta_g.clone();
+        let mut c_g : Vec<<N::PairingCurve as PairingEngine>::G1Projective>  = Vec::new();
+        for i in 0..c_evaluations.len(){
+            c_g.push(pk_lag_basis[i]*c_evaluations[i]);
+        }
+        
+        pk.product_domain.ifft_in_place(&mut c_g);
+        let mut ghat = Vec::new();
+        for i in 0..c_evaluations.len()/2{
+            ghat.push(c_g[i].clone().to_affine());
+        }
+
+        let polynomial: DensePolynomial<_> = Self::prover_polynomial(epoch_challenge, address, nonce).unwrap();
+
+        let bases = ghat.clone();
+        // let bases = self.precompute(epoch_challenge);
+
+        let scalars = polynomial.coeffs.clone();
+        let scalars = scalars.iter().map(|s| s.to_bigint()).collect::<Vec<_>>();
+
+        let commitment = VariableBase::msm(&bases, &scalars);
+        // println!("commitment2 {:?}", commitment.to_affine());
+
+        let commitment = KZGCommitment(commitment.into());
+
+        let partial_solution = PartialSolution::new(address, nonce, commitment);
+
+        Ok((epoch_challenge.epoch_number(), partial_solution))
     }
 
     /// Returns a coinbase solution for the given epoch challenge and prover solutions.

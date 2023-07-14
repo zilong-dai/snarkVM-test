@@ -14,8 +14,8 @@
 
 use crate::{
     impl_sw_curve_serializer,
-    templates::short_weierstrass_jacobian::Projective,
-    traits::{AffineCurve, ProjectiveCurve, ShortWeierstrassParameters as Parameters},
+    templates::{short_weierstrass_jacobian::Projective, twisted_edwards_extended},
+    traits::{AffineCurve, ProjectiveCurve, ShortWeierstrassParameters as Parameters}, bls12_377::{Bls12_377G1Parameters, self}, edwards_bls12::EdwardsParameters384,
 };
 use snarkvm_fields::{Field, One, SquareRootField, Zero};
 use snarkvm_utilities::{
@@ -44,6 +44,44 @@ pub struct Affine<P: Parameters> {
     pub x: P::BaseField,
     pub y: P::BaseField,
     pub infinity: bool,
+}
+
+impl Affine<Bls12_377G1Parameters>{
+    pub fn to_te_affine(&self) -> twisted_edwards_extended::Affine<EdwardsParameters384> {
+        type F = bls12_377::Fq;
+        let one = F::one();
+        let two = one + one;
+        let three = one + two;
+
+        let sw_x = self.x;
+        let sw_y = self.y;
+
+        let s = three.sqrt().unwrap().inverse().unwrap();
+        let s3 = F::zero() - s -s -s;
+
+        let mg_x = s * (sw_x + one);
+        let mg_y = s * sw_y;
+
+        // mg -> te
+        let te_x = mg_x * mg_y.inverse().unwrap();
+        let numerator = mg_x - one;
+        let denominator = mg_x + one;
+        let te_y = numerator * denominator.inverse().unwrap();
+        // let te_t = te_x * te_y ;
+
+        // te -> tee 
+        let mga:  F = s3;
+        let mgb :  F = s;
+        let tea = (mga + two) * mgb.inverse().unwrap();
+        // let ted = (mga - two) * mgb.inverse().unwrap();
+
+        let tee_x = (F::zero() - tea).sqrt().unwrap() * te_x;
+        let tee_y = te_y;
+
+        let tee_t = tee_x * tee_y;
+
+        twisted_edwards_extended::Affine { x: tee_x, y: tee_y, t: tee_t }
+    }
 }
 
 impl<P: Parameters> Affine<P> {
