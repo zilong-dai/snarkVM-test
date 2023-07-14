@@ -35,7 +35,11 @@ use snarkvm_algorithms::{
     msm::VariableBase,
     polycommit::kzg10::{KZGCommitment, UniversalParams as SRS, KZG10},
 };
+<<<<<<< HEAD
 use snarkvm_curves::{PairingEngine, ProjectiveCurve};
+=======
+use snarkvm_curves::PairingEngine;
+>>>>>>> c5f1093afe76546514f81cd503322237c4a21933
 use snarkvm_fields::{PrimeField, Zero};
 use snarkvm_synthesizer_snark::UniversalSRS;
 use snarkvm_utilities::cfg_zip_fold;

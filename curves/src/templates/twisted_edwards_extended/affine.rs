@@ -15,7 +15,11 @@
 use crate::{
     impl_edwards_curve_serializer,
     templates::twisted_edwards_extended::Projective,
+<<<<<<< HEAD
     traits::{AffineCurve, ProjectiveCurve, TwistedEdwardsParameters as Parameters}, edwards_bls12::EdwardsParameters384, edwards_bls12::Fq384, bls12_377::Bls12_377G1Parameters,bls12_377::G1Affine, MontgomeryParameters,
+=======
+    traits::{AffineCurve, ProjectiveCurve, TwistedEdwardsParameters as Parameters},
+>>>>>>> c5f1093afe76546514f81cd503322237c4a21933
 };
 use snarkvm_fields::{Field, One, PrimeField, SquareRootField, Zero};
 use snarkvm_utilities::{
@@ -46,7 +50,7 @@ pub struct Affine<P: Parameters> {
     pub t: P::BaseField,
 }
 
-impl  Affine<EdwardsParameters384 > {
+impl Affine<EdwardsParameters384 > {
     pub fn to_sw_affine(&self) -> G1Affine{
         assert_eq!(self.x * self.y, self.t);
         // let (te_x, te_y) = (self.x, self.y);

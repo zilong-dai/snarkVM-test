@@ -38,7 +38,10 @@ use rand::{
     Rng,
 };
 use serde::{Deserialize, Serialize};
+<<<<<<< HEAD
 use crate::templates::twisted_edwards_extended;
+=======
+>>>>>>> c5f1093afe76546514f81cd503322237c4a21933
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Affine<P: Parameters> {
@@ -47,6 +50,7 @@ pub struct Affine<P: Parameters> {
     pub infinity: bool,
 }
 
+<<<<<<< HEAD
 impl Affine<Bls12_377G1Parameters>{
     pub fn to_te_affine(&self) -> twisted_edwards_extended::Affine<EdwardsParameters384> {
         type F = bls12_377::Fq;
@@ -85,6 +89,8 @@ impl Affine<Bls12_377G1Parameters>{
     }
 }
 
+=======
+>>>>>>> c5f1093afe76546514f81cd503322237c4a21933
 impl<P: Parameters> Affine<P> {
     #[inline]
     pub const fn new(x: P::BaseField, y: P::BaseField, infinity: bool) -> Self {
