@@ -215,7 +215,7 @@ impl<N: Network> CoinbasePuzzle<N> {
         let bases = ghat.clone();
         // let bases = self.precompute(epoch_challenge);
 
-        let scalars = polynomial.coeffs.clone();
+        let scalars = polynomial.coeffs;
         let scalars = scalars.iter().map(|s| s.to_bigint()).collect::<Vec<_>>();
 
         let commitment = VariableBase::msm(&bases, &scalars);
