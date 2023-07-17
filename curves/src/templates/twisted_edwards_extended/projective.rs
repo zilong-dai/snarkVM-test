@@ -206,22 +206,22 @@ impl<P: Parameters> ProjectiveCurve for Projective<P> {
 
     #[allow(clippy::many_single_char_names)]
     fn add_assign_mixed(&mut self, other: &Self::Affine) {
-        // A = X1*X2
-        let a = self.x * other.x;
-        // B = Y1*Y2
-        let b = self.y * other.y;
-        // C = T1*d*T2
-        let c = P::EDWARDS_D * self.t * other.t;
-        // D = Z1
-        let d = self.z;
-        // E = (X1+Y1)*(X2+Y2)-A-B
-        let e = (self.x + self.y) * (other.x + other.y) - a - b;
+        // A = (Y1 - X1)(Y2 - X2)
+        let a = (self.y - self.x) * (other.y - other.x);
+        // B = (Y1 + X1)(Y2 + X2)
+        let b =  (self.y + self.x) * (other.y + other.x);
+        // C = T1*2d*T2
+        let c =  (P::EDWARDS_D * self.t * other.t).double();
+        // D = 2 * Z1
+        let d = self.z.double();
+        // E = B - A
+        let e = b - a;
         // F = D-C
         let f = d - c;
         // G = D+C
         let g = d + c;
         // H = B-a*A
-        let h = b - P::mul_by_a(&a);
+        let h = b + a;
         // X3 = E*F
         self.x = e * f;
         // Y3 = G*H
@@ -231,6 +231,33 @@ impl<P: Parameters> ProjectiveCurve for Projective<P> {
         // Z3 = F*G
         self.z = f * g;
     }
+
+    // fn add_assign_mixed(&mut self, other: &Self::Affine) {
+    //     // A = X1*X2
+    //     let a = self.x * other.x;
+    //     // B = Y1*Y2
+    //     let b = self.y * other.y;
+    //     // C = T1*d*T2
+    //     let c = P::EDWARDS_D * self.t * other.t;
+    //     // D = Z1
+    //     let d = self.z;
+    //     // E = (X1+Y1)*(X2+Y2)-A-B
+    //     let e = (self.x + self.y) * (other.x + other.y) - a - b;
+    //     // F = D-C
+    //     let f = d - c;
+    //     // G = D+C
+    //     let g = d + c;
+    //     // H = B-a*A
+    //     let h = b - P::mul_by_a(&a);
+    //     // X3 = E*F
+    //     self.x = e * f;
+    //     // Y3 = G*H
+    //     self.y = g * h;
+    //     // T3 = E*H
+    //     self.t = e * h;
+    //     // Z3 = F*G
+    //     self.z = f * g;
+    // }
 
     #[inline]
     #[must_use]
@@ -304,46 +331,73 @@ impl<'a, P: Parameters> AddAssign<&'a Self> for Projective<P> {
     #[allow(clippy::many_single_char_names)]
     #[allow(clippy::suspicious_op_assign_impl)]
     fn add_assign(&mut self, other: &'a Self) {
-        // See "Twisted Edwards Curves Revisited"
-        // Huseyin Hisil, Kenneth Koon-Ho Wong, Gary Carter, and Ed Dawson
-        // 3.1 Unified Addition in E^e
-
-        // A = x1 * x2
-        let a = self.x * other.x;
-
-        // B = y1 * y2
-        let b = self.y * other.y;
-
-        // C = d * t1 * t2
-        let c = P::EDWARDS_D * self.t * other.t;
-
-        // D = z1 * z2
-        let d = self.z * other.z;
-
-        // H = B - aA
-        let h = b - P::mul_by_a(&a);
-
-        // E = (x1 + y1) * (x2 + y2) - A - B
-        let e = (self.x + self.y) * (other.x + other.y) - a - b;
-
-        // F = D - C
+        // A = (Y1 - X1)(Y2 - X2)
+        let a = (self.y - self.x) * (other.y - other.x);
+        // B = (Y1 + X1)(Y2 + X2)
+        let b =  (self.y + self.x) * (other.y + other.x);
+        // C = T1*2d*T2
+        let c =  (P::EDWARDS_D * self.t * other.t).double();
+        // D = 2 * Z1 * Z2
+        let d = (self.z * other.z).double();
+        // E = B - A
+        let e = b - a;
+        // F = D-C
         let f = d - c;
-
-        // G = D + C
+        // G = D+C
         let g = d + c;
-
-        // x3 = E * F
+        // H = B-a*A
+        let h = b + a;
+        // X3 = E*F
         self.x = e * f;
-
-        // y3 = G * H
+        // Y3 = G*H
         self.y = g * h;
-
-        // t3 = E * H
+        // T3 = E*H
         self.t = e * h;
-
-        // z3 = F * G
+        // Z3 = F*G
         self.z = f * g;
     }
+
+    // fn add_assign(&mut self, other: &'a Self) {
+    //     // See "Twisted Edwards Curves Revisited"
+    //     // Huseyin Hisil, Kenneth Koon-Ho Wong, Gary Carter, and Ed Dawson
+    //     // 3.1 Unified Addition in E^e
+
+    //     // A = x1 * x2
+    //     let a = self.x * other.x;
+
+    //     // B = y1 * y2
+    //     let b = self.y * other.y;
+
+    //     // C = d * t1 * t2
+    //     let c = P::EDWARDS_D * self.t * other.t;
+
+    //     // D = z1 * z2
+    //     let d = self.z * other.z;
+
+    //     // H = B - aA
+    //     let h = b - P::mul_by_a(&a);
+
+    //     // E = (x1 + y1) * (x2 + y2) - A - B
+    //     let e = (self.x + self.y) * (other.x + other.y) - a - b;
+
+    //     // F = D - C
+    //     let f = d - c;
+
+    //     // G = D + C
+    //     let g = d + c;
+
+    //     // x3 = E * F
+    //     self.x = e * f;
+
+    //     // y3 = G * H
+    //     self.y = g * h;
+
+    //     // t3 = E * H
+    //     self.t = e * h;
+
+    //     // z3 = F * G
+    //     self.z = f * g;
+    // }
 }
 
 impl<'a, P: Parameters> Sub<&'a Self> for Projective<P> {
