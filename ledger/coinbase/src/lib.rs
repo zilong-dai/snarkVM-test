@@ -40,7 +40,7 @@ use snarkvm_fields::{PrimeField, Zero};
 use snarkvm_synthesizer_snark::UniversalSRS;
 use snarkvm_utilities::cfg_zip_fold;
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 #[cfg(feature = "serial")]
 use itertools::Itertools;
@@ -122,6 +122,8 @@ impl<N: Network> CoinbasePuzzle<N> {
             Self::Verifier(_) => bail!("Cannot prove the coinbase puzzle with a verifier"),
         };
 
+        let compute_start = Instant::now();
+
         let polynomial = Self::prover_polynomial(epoch_challenge, address, nonce)?;
 
         let product_evaluations = {
@@ -134,6 +136,8 @@ impl<N: Network> CoinbasePuzzle<N> {
         };
         let (commitment, _rand) = KZG10::commit_lagrange(&pk.lagrange_basis(), &product_evaluations, None, None)?;
 
+        let compute_duration = compute_start.elapsed();
+        println!("Time elapsed in original compute() is: {:?}", compute_duration);
         let partial_solution = PartialSolution::new(address, nonce, commitment);
 
         // Check that the minimum target is met.
@@ -167,7 +171,7 @@ impl<N: Network> CoinbasePuzzle<N> {
             Self::Prover(coinbase_proving_key) => coinbase_proving_key,
             Self::Verifier(_) =>  bail!("Cannot prove the coinbase puzzle with a verifier"),
         };
-
+        let precompute_msm_start = Instant::now();
         let c_evaluations = epoch_challenge.epoch_polynomial_evaluations().evaluations.clone();
 
         let pk_lag_basis = pk.lagrange_basis_at_beta_g.clone();
@@ -175,8 +179,14 @@ impl<N: Network> CoinbasePuzzle<N> {
         for i in 0..c_evaluations.len(){
             c_g.push(pk_lag_basis[i]*c_evaluations[i]);
         }
+        let precompute_msm_duration = precompute_msm_start.elapsed();
+        println!("Time elapsed in precompute msm() is: {:?}", precompute_msm_duration);
         
+        let precompute_fft_start = Instant::now();
         pk.product_domain.fft_in_place(&mut c_g);
+        let precompute_fft_duration = precompute_fft_start.elapsed();
+        println!("Time elapsed in precompute fft() is: {:?}", precompute_fft_duration);
+
         let mut ghat = Vec::new();
         for i in 0..c_evaluations.len()/2{
             ghat.push(c_g[i].clone().to_affine());
@@ -196,22 +206,26 @@ impl<N: Network> CoinbasePuzzle<N> {
             Self::Verifier(_) =>  bail!("Cannot prove the coinbase puzzle with a verifier"),
         };
 
-        let c_evaluations = epoch_challenge.epoch_polynomial_evaluations().evaluations.clone();
+        // let c_evaluations = epoch_challenge.epoch_polynomial_evaluations().evaluations.clone();
 
-        let pk_lag_basis = pk.lagrange_basis_at_beta_g.clone();
-        let mut c_g : Vec<<N::PairingCurve as PairingEngine>::G1Projective>  = Vec::new();
-        for i in 0..c_evaluations.len(){
-            c_g.push(pk_lag_basis[i]*c_evaluations[i]);
-        }
+        // let pk_lag_basis = pk.lagrange_basis_at_beta_g.clone();
+        // let mut c_g : Vec<<N::PairingCurve as PairingEngine>::G1Projective>  = Vec::new();
+        // for i in 0..c_evaluations.len(){
+        //     c_g.push(pk_lag_basis[i]*c_evaluations[i]);
+        // }
         
-        pk.product_domain.ifft_in_place(&mut c_g);
-        let mut ghat = Vec::new();
-        for i in 0..c_evaluations.len()/2{
-            ghat.push(c_g[i].clone().to_affine());
-        }
-
+        // pk.product_domain.fft_in_place(&mut c_g);
+        // let mut ghat = Vec::new();
+        // for i in 0..c_evaluations.len()/2{
+        //     ghat.push(c_g[i].clone().to_affine());
+        // }
+        let precompute_start = Instant::now();
+        let ghat = self.precompute(epoch_challenge).unwrap();
+        let precompute_duration = precompute_start.elapsed();
+        println!("Time elapsed in precompute() is: {:?}", precompute_duration);
+        
+        let miner_start: Instant = Instant::now();
         let polynomial: DensePolynomial<_> = Self::prover_polynomial(epoch_challenge, address, nonce).unwrap();
-
         let bases = ghat.clone();
         // let bases = self.precompute(epoch_challenge);
 
@@ -219,6 +233,9 @@ impl<N: Network> CoinbasePuzzle<N> {
         let scalars = scalars.iter().map(|s| s.to_bigint()).collect::<Vec<_>>();
 
         let commitment = VariableBase::msm(&bases, &scalars);
+        let miner_duration = miner_start.elapsed();
+        println!("Time elapsed in compute() is: {:?}", miner_duration);
+
         // println!("commitment2 {:?}", commitment.to_affine());
 
         let commitment = KZGCommitment(commitment.into());
