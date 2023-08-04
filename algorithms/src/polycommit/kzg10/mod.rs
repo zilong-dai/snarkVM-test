@@ -176,7 +176,7 @@ impl<E: PairingEngine> KZG10<E> {
         let evaluations = evaluations.iter().map(|e| e.to_bigint()).collect::<Vec<_>>();
         let msm_time = start_timer!(|| "MSM to compute commitment to plaintext poly");
         let mut commitment = VariableBase::msm(&lagrange_basis.lagrange_basis_at_beta_g, &evaluations);
-        // println!("commitment {:?}", commitment.to_affine());
+        println!("commitment {:?}", commitment.to_affine());
         end_timer!(msm_time);
 
         let mut randomness = KZGRandomness::empty();
@@ -198,11 +198,36 @@ impl<E: PairingEngine> KZG10<E> {
         let random_commitment =
             VariableBase::msm(&lagrange_basis.powers_of_beta_times_gamma_g, random_ints.as_slice()).to_affine();
         end_timer!(msm_time);
+        println!("random_commitment {:?}", random_commitment);
 
         commitment.add_assign_mixed(&random_commitment);
 
         end_timer!(commit_time);
         Ok((KZGCommitment(commitment.into()), randomness))
+    }
+
+    pub fn generate_random_commit(
+        lagrange_basis: &LagrangeBasis<E>,
+        hiding_bound: Option<usize>,
+        rng: Option<&mut dyn RngCore>,
+    ) -> Result<(E::G1Affine, KZGRandomness<E>), PCError> {
+        let mut randomness = KZGRandomness::empty();
+        if let Some(hiding_degree) = hiding_bound {
+            let mut rng = rng.ok_or(PCError::MissingRng)?;
+
+            randomness = KZGRandomness::rand(hiding_degree, false, &mut rng);
+            Self::check_hiding_bound(
+                randomness.blinding_polynomial.degree(),
+                lagrange_basis.powers_of_beta_times_gamma_g.len(),
+            )?;
+        }
+
+        let random_ints = convert_to_bigints(&randomness.blinding_polynomial.coeffs);
+
+        let random_commitment =
+            VariableBase::msm(&lagrange_basis.powers_of_beta_times_gamma_g, random_ints.as_slice()).to_affine();
+
+        Ok((random_commitment, randomness))
     }
 
     /// Compute witness polynomial.

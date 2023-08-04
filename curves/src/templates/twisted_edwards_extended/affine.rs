@@ -49,6 +49,9 @@ pub struct Affine<P: Parameters> {
 
 impl Affine<EdwardsParameters384> {
     pub fn to_sw_affine(&self) -> G1Affine {
+        if self.is_zero() {
+            return G1Affine::zero();
+        }
         assert_eq!(self.x * self.y, self.t);
         // let (te_x, te_y) = (self.x, self.y);
         type F = Fq384;

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    edwards_bls12::{Fq384, Fr},
+    edwards_bls12::{Fq384, Fr253},
     errors::GroupError,
     templates::twisted_edwards_extended::{Affine, Projective},
     traits::{AffineCurve, ModelParameters, MontgomeryParameters, TwistedEdwardsParameters},
@@ -31,7 +31,7 @@ pub struct EdwardsParameters384;
 
 impl ModelParameters for EdwardsParameters384 {
     type BaseField = Fq384;
-    type ScalarField = Fr;
+    type ScalarField = Fr253;
 }
 
 impl TwistedEdwardsParameters for EdwardsParameters384 {
@@ -39,21 +39,21 @@ impl TwistedEdwardsParameters for EdwardsParameters384 {
 
     const AFFINE_GENERATOR_COEFFS: (Self::BaseField, Self::BaseField) = (GENERATOR_X, GENERATOR_Y);
     /// B1 = x^2 - 1
-    // const B1: Fr = field!(
-    //     Fr,
+    // const B1: Fr253 = field!(
+    //     Fr253,
     //     BigInteger256([12574070832645531618, 10005695704657941814, 1564543351912391449, 657300228442948690])
     // );
     /// B2 = x^2
-    // const B2: Fr = field!(
-    //     Fr,
+    // const B2: Fr253 = field!(
+    //     Fr253,
     //     BigInteger256([2417046298041509844, 11783911742408086824, 14689097366802547462, 270119112518072728])
     // );
     /// COFACTOR = (x - 1)^2 / 3  = 30631250834960419227450344600217059328
     const COFACTOR: &'static [u64] = &[0x0, 0x170b5d4430000000];
     /// COFACTOR_INV = COFACTOR^{-1} mod r
     ///              = 5285428838741532253824584287042945485047145357130994810877
-    const COFACTOR_INV: Fr = field!(
-        Fr,
+    const COFACTOR_INV: Fr253 = field!(
+        Fr253,
         BigInteger256([2013239619100046060, 4201184776506987597, 2526766393982337036, 1114629510922847535,])
     );
     // const PHI: Fq = field!(
@@ -68,8 +68,8 @@ impl TwistedEdwardsParameters for EdwardsParameters384 {
     //     ])
     // );
     /// R128 = 2^128 - 1
-    // const R128: Fr = field!(
-    //     Fr,
+    // const R128: Fr253 = field!(
+    //     Fr253,
     //     BigInteger256([13717662654766427599, 14709524173037165000, 15342848074630952979, 736762107895475646])
     // );
     /// EDWARDS_A = -1

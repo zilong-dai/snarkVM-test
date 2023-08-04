@@ -17,7 +17,7 @@ use crate::{
     templates::{short_weierstrass_jacobian::Projective, twisted_edwards_extended},
     traits::{AffineCurve, ProjectiveCurve, ShortWeierstrassParameters as Parameters}, bls12_377::{Bls12_377G1Parameters, self}, edwards_bls12::EdwardsParameters384,
 };
-use snarkvm_fields::{Field, One, SquareRootField, Zero};
+use snarkvm_fields::{Field, One, SquareRootField, Zero, PrimeField};
 use snarkvm_utilities::{
     bititerator::BitIteratorBE,
     io::{Error, ErrorKind, Read, Result as IoResult, Write},
@@ -26,7 +26,7 @@ use snarkvm_utilities::{
     FromBytes,
     ToBits,
     ToBytes,
-    ToMinimalBits,
+    ToMinimalBits, BigInteger,
 };
 
 use core::{
@@ -48,6 +48,9 @@ pub struct Affine<P: Parameters> {
 
 impl Affine<Bls12_377G1Parameters>{
     pub fn to_te_affine(&self) -> twisted_edwards_extended::Affine<EdwardsParameters384> {
+        if self.is_zero() {
+            return twisted_edwards_extended::Affine::zero();
+        }
         type F = bls12_377::Fq;
         let one = F::one();
         let two = one + one;

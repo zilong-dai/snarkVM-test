@@ -28,19 +28,19 @@ mod tests;
 use console::{
     account::Address,
     prelude::{anyhow, bail, cfg_iter, ensure, has_duplicates, Network, Result, ToBytes},
-    program::cfg_into_iter,
+    program::cfg_into_iter, network::Testnet3,
 };
 use snarkvm_algorithms::{
     fft::{DensePolynomial, EvaluationDomain},
     msm::VariableBase,
     polycommit::kzg10::{KZGCommitment, UniversalParams as SRS, KZG10},
 };
-use snarkvm_curves::{PairingEngine, ProjectiveCurve};
-use snarkvm_fields::{PrimeField, Zero};
+use snarkvm_curves::{PairingEngine, ProjectiveCurve, templates::{twisted_edwards_extended::{Affine, Projective}}, edwards_bls12::{EdwardsParameters384}, bls12_377::{G1Affine, Bls12_377G1Parameters, Fr}};
+use snarkvm_fields::{PrimeField, Zero, One, Fp256};
 use snarkvm_synthesizer_snark::UniversalSRS;
 use snarkvm_utilities::cfg_zip_fold;
 
-use std::{sync::Arc, time::Instant};
+use std::{sync::Arc, time::Instant, ops::AddAssign};
 
 #[cfg(feature = "serial")]
 use itertools::Itertools;
@@ -53,6 +53,106 @@ pub enum CoinbasePuzzle<N: Network> {
     Prover(Arc<CoinbaseProvingKey<N>>),
     /// The verifier contains the coinbase puzzle verifying key.
     Verifier(Arc<CoinbaseVerifyingKey<N>>),
+}
+impl CoinbasePuzzle<Testnet3>{
+    pub fn precompute3(
+        &self,
+        epoch_challenge: &EpochChallenge<Testnet3>,
+    ) -> Result<Vec<Affine<EdwardsParameters384>>> {
+        let pk: &Arc<CoinbaseProvingKey<Testnet3>> = match self {
+            Self::Prover(coinbase_proving_key) => coinbase_proving_key,
+            Self::Verifier(_) => bail!("Cannot prove the coinbase puzzle with a verifier"),
+        };
+        let precompute_msm_start = Instant::now();
+        let c_evaluations = epoch_challenge.epoch_polynomial_evaluations().evaluations.clone();
+
+        let pk_lag_basis = pk.lagrange_basis_at_beta_g.clone();
+        let mut c_g = Vec::new();
+        for i in 0..c_evaluations.len() {
+            c_g.push(pk_lag_basis[i] * c_evaluations[i]);
+        }
+        let precompute_msm_duration = precompute_msm_start.elapsed();
+        println!("Time elapsed in precompute msm() is: {:?}", precompute_msm_duration);
+
+        let precompute_fft_start = Instant::now();
+        pk.product_domain.fft_in_place(&mut c_g);
+        let precompute_fft_duration = precompute_fft_start.elapsed();
+        println!("Time elapsed in precompute fft() is: {:?}", precompute_fft_duration);
+
+        let mut ghat = Vec::new();
+        for i in 0..c_evaluations.len() / 2 {
+            ghat.push(c_g[i].clone().to_affine().to_te_affine());
+        }
+        Ok(ghat)
+    }
+
+    pub fn prove3(
+        &self,
+        epoch_challenge: &EpochChallenge<Testnet3>,
+        address: Address<Testnet3>,
+        nonce: u64,
+        minimum_proof_target: Option<u64>,
+    ) -> Result<(u32, PartialSolution<Testnet3>)> {
+        let pk: &Arc<CoinbaseProvingKey<Testnet3>> = match self {
+            Self::Prover(coinbase_proving_key) => coinbase_proving_key,
+            Self::Verifier(_) => bail!("Cannot prove the coinbase puzzle with a verifier"),
+        };
+
+        let precompute_start = Instant::now();
+        let ghat: Vec<Affine<EdwardsParameters384>> = self.precompute3(epoch_challenge).unwrap();
+
+        // let ghat2: Vec<Affine<EdwardsParameters384>> = ghat.iter().map(|g| g.to_te_affine()).collect();
+        // println!("ghat {:?}", ghat2);
+
+        let precompute_duration = precompute_start.elapsed();
+        println!("Time elapsed in precompute() is: {:?}", precompute_duration);
+        // println!("precompute: {:?}", ghat2.iter().map(|g| g.to_sw_affine()).collect::<Vec<G1Affine>>());
+
+        let miner_start: Instant = Instant::now();
+        let polynomial: DensePolynomial<_> = Self::prover_polynomial(epoch_challenge, address, nonce).unwrap();
+        // let polynomial = epoch_challenge.epoch_polynomial().clone();
+        let bases = ghat.clone();
+
+        // let scalars: Vec<Fp256<snarkvm_curves::edwards_bls12::FrParameters>> = polynomial.coeffs.iter().map(|poly| {println!("{:?}", poly); Fp256::<snarkvm_curves::edwards_bls12::FrParameters>::from_bigint(poly.0).unwrap()}).collect();
+        use snarkvm_curves::edwards_bls12::Fr253;
+        let scalars : Vec<Fr253> = polynomial.coeffs.clone();
+        println!("poly f scalar {:?}", scalars);
+        let scalars = scalars.iter().map(|s| s.to_bigint()).collect::<Vec<_>>();
+
+        let mut commitment = VariableBase::msm(&bases, &scalars);
+        // let mut commitment = Projective::<EdwardsParameters384>::zero();
+        // for i in 0..ghat.len() {
+        //     commitment.add_assign(ghat[i] * scalars[i]);
+        // }
+        // println!("commitment sw1 {:?}", VariableBase::msm(&ghat, &scalars).to_affine().to_te_affine());
+        println!("commitment te {:?}", commitment.to_affine());
+        println!("commitment sw {:?}", commitment.to_affine().to_sw_affine());
+        println!("commitment te2 {:?}", commitment.to_affine().to_sw_affine().to_te_affine());
+        let (random_commit, _rand) = KZG10::generate_random_commit(&pk.lagrange_basis(), None, None)?;
+        println!("random_commit {:?}", random_commit);
+        println!("random_commit te {:?}", random_commit.to_te_affine());
+        commitment.add_assign_mixed(&random_commit.to_te_affine());
+        println!("final commitment {:?}", commitment.to_affine().to_sw_affine());
+        let miner_duration = miner_start.elapsed();
+        println!("Time elapsed in compute() is: {:?}", miner_duration);
+
+        // println!("commitment2 {:?}", commitment.to_affine());
+
+        let commitment = KZGCommitment(commitment.to_affine().to_sw_affine());
+
+        let partial_solution = PartialSolution::new(address, nonce, commitment);
+        println!("proof_target {:?}", partial_solution.to_target().unwrap());
+        // Check that the minimum target is met.
+        if let Some(minimum_target) = minimum_proof_target {
+            let proof_target = partial_solution.to_target()?;
+            ensure!(
+                proof_target >= minimum_target,
+                "Prover solution was below the necessary proof target ({proof_target} < {minimum_target})"
+            );
+        }
+
+        Ok((epoch_challenge.epoch_number(), partial_solution))
+    }
 }
 
 impl<N: Network> CoinbasePuzzle<N> {
@@ -125,6 +225,7 @@ impl<N: Network> CoinbasePuzzle<N> {
         let compute_start = Instant::now();
 
         let polynomial = Self::prover_polynomial(epoch_challenge, address, nonce)?;
+        // let polynomial = epoch_challenge.epoch_polynomial().clone();
 
         let product_evaluations = {
             let polynomial_evaluations = pk.product_domain.in_order_fft_with_pc(&polynomial, &pk.fft_precomputation);
@@ -134,6 +235,7 @@ impl<N: Network> CoinbasePuzzle<N> {
             );
             product_evaluations
         };
+        println!("product evaluations {:?}", product_evaluations);
         let (commitment, _rand) = KZG10::commit_lagrange(&pk.lagrange_basis(), &product_evaluations, None, None)?;
 
         let compute_duration = compute_start.elapsed();
@@ -166,34 +268,37 @@ impl<N: Network> CoinbasePuzzle<N> {
         Ok(ProverSolution::new(partial_solution, proof))
     }
 
-    pub fn precompute(&self, epoch_challenge: &EpochChallenge<N>) -> Result<Vec<<N::PairingCurve as PairingEngine>::G1Affine>> {
+    pub fn precompute(
+        &self,
+        epoch_challenge: &EpochChallenge<N>,
+    ) -> Result<Vec<<N::PairingCurve as PairingEngine>::G1Affine>> {
         let pk: &Arc<CoinbaseProvingKey<N>> = match self {
             Self::Prover(coinbase_proving_key) => coinbase_proving_key,
-            Self::Verifier(_) =>  bail!("Cannot prove the coinbase puzzle with a verifier"),
+            Self::Verifier(_) => bail!("Cannot prove the coinbase puzzle with a verifier"),
         };
         let precompute_msm_start = Instant::now();
         let c_evaluations = epoch_challenge.epoch_polynomial_evaluations().evaluations.clone();
 
         let pk_lag_basis = pk.lagrange_basis_at_beta_g.clone();
-        let mut c_g : Vec<<N::PairingCurve as PairingEngine>::G1Projective>  = Vec::new();
-        for i in 0..c_evaluations.len(){
-            c_g.push(pk_lag_basis[i]*c_evaluations[i]);
+        let mut c_g: Vec<<N::PairingCurve as PairingEngine>::G1Projective> = Vec::new();
+        for i in 0..c_evaluations.len() {
+            c_g.push(pk_lag_basis[i] * c_evaluations[i]);
         }
         let precompute_msm_duration = precompute_msm_start.elapsed();
         println!("Time elapsed in precompute msm() is: {:?}", precompute_msm_duration);
-        
+
         let precompute_fft_start = Instant::now();
         pk.product_domain.fft_in_place(&mut c_g);
         let precompute_fft_duration = precompute_fft_start.elapsed();
         println!("Time elapsed in precompute fft() is: {:?}", precompute_fft_duration);
 
         let mut ghat = Vec::new();
-        for i in 0..c_evaluations.len()/2{
+        for i in 0..c_evaluations.len() / 2 {
             ghat.push(c_g[i].clone().to_affine());
         }
         Ok(ghat)
-
     }
+
     pub fn prove2(
         &self,
         epoch_challenge: &EpochChallenge<N>,
@@ -203,7 +308,7 @@ impl<N: Network> CoinbasePuzzle<N> {
     ) -> Result<(u32, PartialSolution<N>)> {
         let pk: &Arc<CoinbaseProvingKey<N>> = match self {
             Self::Prover(coinbase_proving_key) => coinbase_proving_key,
-            Self::Verifier(_) =>  bail!("Cannot prove the coinbase puzzle with a verifier"),
+            Self::Verifier(_) => bail!("Cannot prove the coinbase puzzle with a verifier"),
         };
 
         // let c_evaluations = epoch_challenge.epoch_polynomial_evaluations().evaluations.clone();
@@ -213,7 +318,7 @@ impl<N: Network> CoinbasePuzzle<N> {
         // for i in 0..c_evaluations.len(){
         //     c_g.push(pk_lag_basis[i]*c_evaluations[i]);
         // }
-        
+
         // pk.product_domain.fft_in_place(&mut c_g);
         // let mut ghat = Vec::new();
         // for i in 0..c_evaluations.len()/2{
@@ -223,24 +328,38 @@ impl<N: Network> CoinbasePuzzle<N> {
         let ghat = self.precompute(epoch_challenge).unwrap();
         let precompute_duration = precompute_start.elapsed();
         println!("Time elapsed in precompute() is: {:?}", precompute_duration);
-        
+        println!("precompute: {:?}", ghat);
+
         let miner_start: Instant = Instant::now();
         let polynomial: DensePolynomial<_> = Self::prover_polynomial(epoch_challenge, address, nonce).unwrap();
+        // let polynomial = epoch_challenge.epoch_polynomial().clone();
         let bases = ghat.clone();
         // let bases = self.precompute(epoch_challenge);
 
         let scalars = polynomial.coeffs;
+        println!("poly f scalar {:?}", scalars);
         let scalars = scalars.iter().map(|s| s.to_bigint()).collect::<Vec<_>>();
 
-        let commitment = VariableBase::msm(&bases, &scalars);
+        let mut commitment = VariableBase::msm(&bases, &scalars);
+        println!("commitment2 {:?}", commitment.to_affine());
+        let (random_commit, _rand) = KZG10::generate_random_commit(&pk.lagrange_basis(), None, None)?;
+        commitment.add_assign_mixed(&random_commit);
         let miner_duration = miner_start.elapsed();
         println!("Time elapsed in compute() is: {:?}", miner_duration);
 
-        // println!("commitment2 {:?}", commitment.to_affine());
+        
 
         let commitment = KZGCommitment(commitment.into());
 
         let partial_solution = PartialSolution::new(address, nonce, commitment);
+        // Check that the minimum target is met.
+        if let Some(minimum_target) = minimum_proof_target {
+            let proof_target = partial_solution.to_target()?;
+            ensure!(
+                proof_target >= minimum_target,
+                "Prover solution was below the necessary proof target ({proof_target} < {minimum_target})"
+            );
+        }
 
         Ok((epoch_challenge.epoch_number(), partial_solution))
     }

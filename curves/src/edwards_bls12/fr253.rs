@@ -12,31 +12,4 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![cfg_attr(nightly, doc = include_str!("../../documentation/the_aleo_curves/01_edwards_bls12.md"))]
-
-pub mod fq;
-#[doc(inline)]
-pub use fq::*;
-
-pub mod fq384;
-#[doc(inline)]
-pub use fq384::*;
-
-pub mod fr;
-#[doc(inline)]
-pub use fr::*;
-
-pub mod fr253;
-#[doc(inline)]
-pub use fr253::*;
-
-pub mod parameters;
-#[doc(inline)]
-pub use parameters::*;
-
-pub mod parameters384;
-#[doc(inline)]
-pub use parameters384::*;
-
-#[cfg(test)]
-mod tests;
+pub use crate::bls12_377::fr::{Fr as Fr253, FrParameters as FrParameters253};
