@@ -647,12 +647,12 @@ impl<P: Fp384Parameters> FromStr for Fp384<P> {
         let mut res = Self::zero();
 
         let ten =
-            Self::from_bigint(<Self as PrimeField>::BigInteger::from(10)).ok_or(FieldError::InvalidFieldElement)?;
+            Self::from_bigint(<Self as PrimeField>::BigInteger::from(16)).ok_or(FieldError::InvalidFieldElement)?;
 
         let mut first_digit = true;
 
         for c in s.chars() {
-            match c.to_digit(10) {
+            match c.to_digit(16) {
                 Some(c) => {
                     if first_digit {
                         if c == 0 {

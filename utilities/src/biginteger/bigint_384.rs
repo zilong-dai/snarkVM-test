@@ -37,6 +37,46 @@ impl BigInteger384 {
     pub const fn new(value: [u64; 6]) -> Self {
         BigInteger384(value)
     }
+
+    fn from_biguint(buint:num_bigint::BigUint ) -> Self{
+        let mut bbuint = buint.to_bytes_le();
+
+        // for b in bbuint.iter() {
+        //     print!("{:X} ", b);
+        // }
+        // println!();
+        let mut bbbuint = [0u8; 48];
+        bbbuint[0..bbuint.len()].copy_from_slice(&bbuint[..]);
+        BigInteger384::read_le(&bbbuint[..]).unwrap()
+    }
+    pub fn from_str(s: &str) -> Self  {
+
+        let buint = <BigUint as core::str::FromStr>::from_str(s).unwrap();
+        BigInteger384::from_biguint(buint)
+        // let bytes = s.as_bytes();
+
+        // assert!(bytes.len() <= 96);
+
+        // let mut value = [0u8; 48];
+        // let len = bytes.len()/2;
+
+        // let remain = bytes.len()%2;
+        // for i in 0..len{
+        //     value[48-len + i] = ascii2num(bytes[2*i + remain]) << 4 | ascii2num(bytes[2*i +remain + 1] );
+        //     // println!("{:02x}", value[48-len + i] );
+        // }
+        // if remain == 1 {
+        //     value[47-len] = ascii2num(bytes[0]);
+        //     // println!("{:02x}", value[47-len]);
+        // }
+        // value.reverse();
+        // // for i in 0..48{
+        // //     print!("{:02x}", value[i] );
+        // // }
+        // // println!();
+        
+        // BigInteger384::read_le(&value[..]).unwrap()
+    }
 }
 impl BigInteger for BigInteger384 {
     const NUM_LIMBS: usize = 6;
@@ -335,4 +375,13 @@ impl From<u64> for BigInteger384 {
         repr.0[0] = val;
         repr
     }
+}
+
+#[test]
+fn test_from_str(){
+    let str = "69bcf2aa06f0e6f368715f26885d6b362d8c76cbc572c83cf2f80fa2f99d7b7c4f533523cccbe216cb292efa138287";
+    let inx = BigInteger384::from_str(str);
+    let bbuint = inx.to_bytes_le().unwrap();
+
+    println!("{:x}", inx.to_biguint());
 }

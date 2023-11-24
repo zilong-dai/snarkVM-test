@@ -220,3 +220,14 @@ mod tests {
         assert_eq!(expected, Fq::two_adic_root_of_unity());
     }
 }
+
+
+#[test]
+fn test_into(){
+    let str = "1000";
+    let point = Fq::from_str(str).unwrap();
+
+    let sixteen = point/ Fq::from(16*16 as u32);
+
+    println!("sixteen {:?}", snarkvm_utilities::BigInteger::to_biguint(&sixteen.to_bigint()));
+}

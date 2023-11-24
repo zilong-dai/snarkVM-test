@@ -35,10 +35,10 @@ use snarkvm_algorithms::{
     msm::VariableBase,
     polycommit::kzg10::{KZGCommitment, UniversalParams as SRS, KZG10},
 };
-use snarkvm_curves::{PairingEngine, ProjectiveCurve, templates::{twisted_edwards_extended::{Affine, Projective}}, edwards_bls12::{EdwardsParameters384}, bls12_377::{G1Affine, Bls12_377G1Parameters, Fr}};
+use snarkvm_curves::{PairingEngine, ProjectiveCurve, templates::twisted_edwards_extended::{Affine, Projective}, edwards_bls12::{EdwardsParameters384}, bls12_377::{G1Affine, Bls12_377G1Parameters, Fr}};
 use snarkvm_fields::{PrimeField, Zero, One, Fp256};
 use snarkvm_synthesizer_snark::UniversalSRS;
-use snarkvm_utilities::cfg_zip_fold;
+use snarkvm_utilities::{cfg_zip_fold, BigInteger, BigInteger256};
 
 use std::{sync::Arc, time::Instant, ops::AddAssign};
 
@@ -98,55 +98,272 @@ impl CoinbasePuzzle<Testnet3>{
             Self::Verifier(_) => bail!("Cannot prove the coinbase puzzle with a verifier"),
         };
 
-        let precompute_start = Instant::now();
         let ghat: Vec<Affine<EdwardsParameters384>> = self.precompute3(epoch_challenge).unwrap();
 
-        // let ghat2: Vec<Affine<EdwardsParameters384>> = ghat.iter().map(|g| g.to_te_affine()).collect();
-        // println!("ghat {:?}", ghat2);
-
-        let precompute_duration = precompute_start.elapsed();
-        println!("Time elapsed in precompute() is: {:?}", precompute_duration);
-        // println!("precompute: {:?}", ghat2.iter().map(|g| g.to_sw_affine()).collect::<Vec<G1Affine>>());
-
-        let miner_start: Instant = Instant::now();
         let polynomial: DensePolynomial<_> = Self::prover_polynomial(epoch_challenge, address, nonce).unwrap();
         // let polynomial = epoch_challenge.epoch_polynomial().clone();
         let bases = ghat.clone();
 
         // let scalars: Vec<Fp256<snarkvm_curves::edwards_bls12::FrParameters>> = polynomial.coeffs.iter().map(|poly| {println!("{:?}", poly); Fp256::<snarkvm_curves::edwards_bls12::FrParameters>::from_bigint(poly.0).unwrap()}).collect();
         use snarkvm_curves::edwards_bls12::Fr253;
-        let scalars : Vec<Fr253> = polynomial.coeffs.clone();
-        println!("poly f scalar {:?}", scalars);
+        let scalars: Vec<Fr253> = polynomial.coeffs.clone();
+        // println!("poly f scalar {:?}", scalars);
         let scalars = scalars.iter().map(|s| s.to_bigint()).collect::<Vec<_>>();
 
         let mut commitment = VariableBase::msm(&bases, &scalars);
-        // let mut commitment = Projective::<EdwardsParameters384>::zero();
-        // for i in 0..ghat.len() {
-        //     commitment.add_assign(ghat[i] * scalars[i]);
-        // }
-        // println!("commitment sw1 {:?}", VariableBase::msm(&ghat, &scalars).to_affine().to_te_affine());
-        println!("commitment te {:?}", commitment.to_affine());
+
         println!("commitment sw {:?}", commitment.to_affine().to_sw_affine());
-        println!("commitment te2 {:?}", commitment.to_affine().to_sw_affine().to_te_affine());
+
         let (random_commit, _rand) = KZG10::generate_random_commit(&pk.lagrange_basis(), None, None)?;
         println!("random_commit {:?}", random_commit);
-        println!("random_commit te {:?}", random_commit.to_te_affine());
+        // println!("random_commit te {:?}", random_commit.to_te_affine());
         commitment.add_assign_mixed(&random_commit.to_te_affine());
-        println!("final commitment {:?}", commitment.to_affine().to_sw_affine());
-        let miner_duration = miner_start.elapsed();
-        println!("Time elapsed in compute() is: {:?}", miner_duration);
+        println!("commitment sw {:?}", commitment.to_affine().to_sw_affine());
+        println!("commitment sw {:x}", commitment.to_affine().to_sw_affine().x.to_bigint().to_biguint());
+        println!("commitment sw {:x}", commitment.to_affine().to_sw_affine().y.to_bigint().to_biguint());
+
+        // println!("final commitment {:?}", commitment.to_affine().to_sw_affine());
 
         // println!("commitment2 {:?}", commitment.to_affine());
 
         let commitment = KZGCommitment(commitment.to_affine().to_sw_affine());
 
         let partial_solution = PartialSolution::new(address, nonce, commitment);
-        println!("proof_target {:?}", partial_solution.to_target().unwrap());
+        // println!("proof_target {:?}", partial_solution.to_target().unwrap());
         // Check that the minimum target is met.
         if let Some(minimum_target) = minimum_proof_target {
             let proof_target = partial_solution.to_target()?;
             ensure!(
                 proof_target >= minimum_target,
+                "Prover solution was below the necessary proof target ({proof_target} < {minimum_target})"
+            );
+        }
+
+        Ok((epoch_challenge.epoch_number(), partial_solution))
+    }
+
+    pub fn prove4(
+        &self,
+        ghat: Vec<Affine<EdwardsParameters384>>,
+        epoch_challenge: &EpochChallenge<Testnet3>,
+        address: Address<Testnet3>,
+        nonce: u64,
+        minimum_proof_target: Option<u64>,
+        rep: u64,
+    ) -> Result<(u32, PartialSolution<Testnet3>)> {
+        let pk: &Arc<CoinbaseProvingKey<Testnet3>> = match self {
+            Self::Prover(coinbase_proving_key) => coinbase_proving_key,
+            Self::Verifier(_) => bail!("Cannot prove the coinbase puzzle with a verifier"),
+        };
+
+        // let precompute_start = Instant::now();
+        // let ghat: Vec<Affine<EdwardsParameters384>> = self.precompute3(epoch_challenge).unwrap();
+
+        use std::io::Write;
+
+        // for gh in ghat.iter() {
+        //     let point = gh.clone();
+        //     let x = point.x.to_bigint().to_biguint();
+        //     let y = point.y.to_bigint().to_biguint();
+        //     // let z = point.z.to_bigint().to_biguint();
+        //     // let t = point.t.to_bigint().to_biguint();
+        //     // writeln!(&input_poly_file, "{:x} {:x} {:x} {:x}", x, y, z, t).unwrap();
+        //     writeln!(&input_x_file, "{:x}", x).unwrap();
+        //     writeln!(&input_y_file, "{:x}", y).unwrap();
+        // }
+
+        // let ghat2: Vec<Affine<EdwardsParameters384>> = ghat.iter().map(|g| g.to_te_affine()).collect();
+        // println!("ghat {:?}", ghat2);
+
+        // let precompute_duration = precompute_start.elapsed();
+        // println!("Time elapsed in precompute() is: {:?}", precompute_duration);
+        // println!("precompute: {:?}", ghat2.iter().map(|g| g.to_sw_affine()).collect::<Vec<G1Affine>>());
+
+        let miner_start: Instant = Instant::now();
+        let polynomial: DensePolynomial<_> = Self::prover_polynomial(epoch_challenge, address, nonce).unwrap();
+
+        // let polynomial = epoch_challenge.epoch_polynomial().clone();
+        let bases = ghat.clone();
+
+        // let scalars: Vec<Fp256<snarkvm_curves::edwards_bls12::FrParameters>> = polynomial.coeffs.iter().map(|poly| {println!("{:?}", poly); Fp256::<snarkvm_curves::edwards_bls12::FrParameters>::from_bigint(poly.0).unwrap()}).collect();
+        use snarkvm_curves::edwards_bls12::Fr253;
+        let scalars: Vec<Fr253> = polynomial.coeffs.clone();
+        println!("poly f scalar {:?}", scalars[0]);
+
+        let mut scalarsfile = std::fs::File::create(format!("scalars_{}.txt", rep)).expect("create failed");
+
+        for s in scalars.iter() {
+            writeln!(scalarsfile, "{:x}", s.clone().to_bigint().to_biguint()).unwrap();
+        }
+
+        println!("scalars[0] {:x}", scalars[0].to_bigint().to_biguint());
+
+        let scalars = scalars.iter().map(|s| s.to_bigint()).collect::<Vec<_>>();
+
+        let mut commitment = VariableBase::msm(&bases, &scalars);
+        println!("prove4 commitment sw {:?}", commitment.to_affine().to_sw_affine());
+
+        let commitment2 = Projective::<EdwardsParameters384>::zero();
+
+        let bases2 = ghat.clone();
+
+
+        for i in 0..scalars.len(){
+            println!("{:x}", scalars[i].clone().to_biguint());
+            // TODO 
+            use snarkvm_curves::AffineCurve;
+            let mut b128 = bases[i].clone().to_projective();
+            for _ in 0..128{
+                b128.double_in_place();
+            }
+            let mut tempa1 = Projective::<EdwardsParameters384>::zero();
+            let mut tempa2 = Projective::<EdwardsParameters384>::zero();
+            let s = scalars[i].clone().to_bytes_le().unwrap();
+            for su8 in s.clone(){
+                print!("{:02x} ", su8);
+            }
+            println!();
+
+            for j in 0..16{
+                tempa1 = tempa1 * Fr::from_bigint(BigInteger256::from(1 << 8 as u64)).unwrap();
+                tempa2 = tempa2 * Fr::from_bigint(BigInteger256::from(1 << 8 as u64)).unwrap();
+                tempa1.add_assign(bases[i] * Fr::from_bigint(BigInteger256::from(s[15 - j] as u64)).unwrap());
+                tempa2.add_assign(b128* Fr::from_bigint(BigInteger256::from(s[31 - j] as u64)).unwrap());
+            }
+            let tmp = bases[i].clone() * Fr::from_bigint(scalars[i].clone()).unwrap() ;
+            let mut temp = Projective::<EdwardsParameters384>::zero();
+            for j in 0..32{
+                for _ in 0..8{
+                    temp.double_in_place();
+                }
+                
+                temp.add_assign(bases[i].clone() * Fr::from_bigint(BigInteger256::from(s[31 - j] as u64)).unwrap());
+               
+            }
+            assert_eq!(tmp, tempa1+ tempa2);
+            assert_eq!(tmp.to_affine(), temp.to_affine());
+        }
+        // let mut commitmentcomp = commitment.clone();
+        // let mut add_point = Projective::<EdwardsParameters384>::zero();
+        // for (i, base) in bases.clone().iter().enumerate() {
+        //     add_point.add_assign(
+        //             base.clone() * snarkvm_curves::edwards_bls12::Fr253::from_bigint(BigInteger256::from((i % 8) as u64)).unwrap(),
+        //     );
+        // }
+        // for _ in 0..253{
+        //     add_point.double_in_place();
+        // }
+        // println!("add_point {:?}", add_point.to_affine());
+        // commitmentcomp.add_assign(add_point);
+
+        // {
+        //     let one = Fr253::one();
+        //     let mut two = one + one;
+
+        //     let mut twopower253 = one.clone();
+        //     for _ in 0..253{
+        //         twopower253 = twopower253*two;
+        //     }
+
+        //     let scalars2 = polynomial.coeffs.clone().iter().enumerate().map(|(i, s)| (*s + twopower253 * Fr253::from_bigint(BigInteger256::from(i as u64 % 8)).unwrap()).to_bigint()  ).collect::<Vec<_>>();
+        //     let mut commitment2 = VariableBase::msm(&bases, &scalars2);
+
+        //     let unscalars = polynomial.coeffs.clone().iter().enumerate().map(|(i, _s)| (twopower253 * Fr253::from_bigint(BigInteger256::from(i as u64 % 8)).unwrap()).to_bigint()  ).collect::<Vec<_>>();
+        //     let mut commitment3 = VariableBase::msm(&bases, &scalars2);
+        //     assert_eq!(commitment + commitment3, commitment2);
+        // }
+
+        // let mut commitment = Projective::<EdwardsParameters384>::zero();
+        // for i in 0..ghat.len() {
+        //     commitment.add_assign(ghat[i] * scalars[i]);
+        // }
+        // println!("commitment sw1 {:?}", VariableBase::msm(&ghat, &scalars).to_affine().to_te_affine());
+        // println!("commitment te {:?}", commitment.to_affine());
+        // println!("commitment sw {:?}", commitment.to_affine().to_sw_affine());
+        // println!("commitment te2 {:?}", commitment.to_affine().to_sw_affine().to_te_affine());
+        // let mut peoutputfile = std::fs::File::create(format!("peoutput_{}.txt", rep)).expect("create failed");
+
+        // let scalaru8: Vec<Vec<u8>> = scalars.iter().map(|s| s.to_bytes_le().unwrap()).collect();
+
+        // let mut pevec: Vec<Projective<EdwardsParameters384>> = Vec::new();
+        // let mut subpoint : Projective<EdwardsParameters384> = Projective::<EdwardsParameters384>::zero();
+        // for pei in 0..32 {
+        //     print!("{:02x}", scalaru8[0][pei]);
+        //     let mut peisum = Projective::<EdwardsParameters384>::zero();
+        //     for si in 0..scalaru8.len() {
+        //         peisum.add_assign(
+        //             bases[si]
+        //                 * snarkvm_curves::edwards_bls12::Fr253::from_bigint(BigInteger256::from(
+        //                     scalaru8[si][pei] as u64,
+        //                 ))
+        //                 .unwrap(),
+        //         );
+        //         if pei == 31 {
+
+        //             peisum.add_assign(
+        //                 bases[si]
+        //                     * snarkvm_curves::edwards_bls12::Fr253::from_bigint(BigInteger256::from(
+        //                         (si % 8) as u64 *32,
+        //                     ))
+        //                     .unwrap(),
+        //             );
+        //             subpoint.add_assign(bases[si] * snarkvm_curves::edwards_bls12::Fr253::from_bigint(BigInteger256::from((si %8)as u64 *32)).unwrap());
+        //         }
+        //     }
+        //     // pesum = pesum * Fr::from_bigint(BigInteger256::from(1 << 8 as u64)).unwrap();
+        //     // pesum.add_assign(peisum);
+        //     pevec.push(peisum);
+        // }
+        // let mut pesum = Projective::<EdwardsParameters384>::zero();
+        // for i in 0..32 {
+        //     pesum = pesum * Fr::from_bigint(BigInteger256::from(1 << 8 as u64)).unwrap();
+        //     pesum.add_assign(pevec[31 - i]);
+
+        //     let base_porject = pevec[i].clone();
+        //     let x = base_porject.x.to_bigint().to_biguint();
+        //     let y = base_porject.y.to_bigint().to_biguint();
+        //     let z = base_porject.z.to_bigint().to_biguint();
+        //     let t = base_porject.t.to_bigint().to_biguint();
+        //     writeln!(peoutputfile, "{:x} {:x} {:x} {:x}", x, y, z, t).unwrap();
+        // }
+        // for _ in 0..248{
+        //     subpoint.double_in_place();
+        // }
+        // pesum.add_assign(-subpoint);
+
+        // assert_eq!(commitment.to_affine(), pesum.to_affine());
+
+        let (random_commit, _rand) = KZG10::generate_random_commit(&pk.lagrange_basis(), None, None)?;
+        println!("random_commit {:?}", random_commit);
+        // println!("random_commit te {:?}", random_commit.to_te_affine());
+        commitment.add_assign_mixed(&random_commit.to_te_affine());
+        // println!("final commitment {:?}", commitment.to_affine().to_sw_affine());
+        let miner_duration = miner_start.elapsed();
+        // println!("Time elapsed in compute() is: {:?}", miner_duration);
+        // let commitment = commitment - commitment;
+        // {
+        //     let point = commitment.clone();
+        //     let x = point.x.to_bigint().to_biguint();
+        //     let y = point.y.to_bigint().to_biguint();
+        //     let z = point.z.to_bigint().to_biguint();
+        //     let t = point.t.to_bigint().to_biguint();
+        //     println!("{:x} {:x} {:x} {:x}", x, y, z, t);
+        //     println!("prove4 commitment te {:?}", commitment);
+        //     println!("prove4 commitment sw {:?}", commitment.to_affine().to_sw_affine());
+        // }
+
+        let commitment = KZGCommitment(commitment.to_affine().to_sw_affine());
+
+        println!("prove4 commitment {:?}", commitment.0);
+
+        let partial_solution = PartialSolution::new(address, nonce, commitment);
+        // println!("proof_target {:?}", partial_solution.to_target().unwrap());
+        // Check that the minimum target is met.
+        if let Some(minimum_target) = minimum_proof_target {
+            let proof_target = partial_solution.to_target()?;
+            println!("proof_target {:08x}", proof_target);
+            ensure!(
+                proof_target == minimum_target,
                 "Prover solution was below the necessary proof target ({proof_target} < {minimum_target})"
             );
         }
@@ -222,8 +439,6 @@ impl<N: Network> CoinbasePuzzle<N> {
             Self::Verifier(_) => bail!("Cannot prove the coinbase puzzle with a verifier"),
         };
 
-        let compute_start = Instant::now();
-
         let polynomial = Self::prover_polynomial(epoch_challenge, address, nonce)?;
         // let polynomial = epoch_challenge.epoch_polynomial().clone();
 
@@ -235,11 +450,8 @@ impl<N: Network> CoinbasePuzzle<N> {
             );
             product_evaluations
         };
-        println!("product evaluations {:?}", product_evaluations);
+        // println!("product evaluations {:?}", product_evaluations);
         let (commitment, _rand) = KZG10::commit_lagrange(&pk.lagrange_basis(), &product_evaluations, None, None)?;
-
-        let compute_duration = compute_start.elapsed();
-        println!("Time elapsed in original compute() is: {:?}", compute_duration);
         let partial_solution = PartialSolution::new(address, nonce, commitment);
 
         // Check that the minimum target is met.
@@ -337,7 +549,7 @@ impl<N: Network> CoinbasePuzzle<N> {
         // let bases = self.precompute(epoch_challenge);
 
         let scalars = polynomial.coeffs;
-        println!("poly f scalar {:?}", scalars);
+        // println!("poly f scalar {:?}", scalars);
         let scalars = scalars.iter().map(|s| s.to_bigint()).collect::<Vec<_>>();
 
         let mut commitment = VariableBase::msm(&bases, &scalars);
@@ -347,7 +559,7 @@ impl<N: Network> CoinbasePuzzle<N> {
         let miner_duration = miner_start.elapsed();
         println!("Time elapsed in compute() is: {:?}", miner_duration);
 
-        
+
 
         let commitment = KZGCommitment(commitment.into());
 
@@ -602,6 +814,58 @@ impl<N: Network> CoinbasePuzzle<N> {
             bytes[68..].copy_from_slice(&nonce.to_le_bytes());
             bytes
         };
+
+        // for i in 68..76 {
+        //     print!("{:02x}", input[i]);
+        // }
+        // let len: u32 = epoch_challenge.epoch_polynomial().coeffs().len() as u32;
+        // let len_bytes = len.to_bytes_le().unwrap();
+        // for i in 0..4 {
+        //     print!("{:02x}", len_bytes[i]);
+        // }
+
+        // for i in 36..68 {
+        //     print!("{:02x}", input[i]);
+        // }
+
+        // for i in 4..36 {
+        //     print!("{:02x}", input[i]);
+        // }
+
+        // for i in 0..4 {
+        //     print!("{:02x}", input[i]);
+        // }
+
+        // print!("{:02x}", input[8]);
+        // println!();
+
+        // let mut work_fd = std::fs::File::create(format!("work.txt")).expect("create failed");
+        // for i in 0..4 {
+        //     write!(&work_fd, "{:02x}", input[i])?;
+        // }
+        // write!(&work_fd, ", ")?;
+
+        // for i in 4..36 {
+        //     write!(&work_fd, "{:02x}", input[i])?;
+        // }
+        // write!(&work_fd, ", ");
+
+        // for i in 36..68 {
+        //     write!(&work_fd, "{:02x}", input[i])?;
+        // }
+        // write!(&work_fd, ", ")?;
+
+        // let len: u32 = epoch_challenge.epoch_polynomial().coeffs().len() as u32;
+        // let len_bytes = len.to_bytes_le()?;
+        // for i in 0..4 {
+        //     write!(&work_fd, "{:02x}", len_bytes[i])?;
+        // }
+        // write!(&work_fd, ", ")?;
+
+        // for i in 68..76 {
+        //     write!(&work_fd, "{:02x}", input[i])?;
+        // }
+
         Ok(hash_to_polynomial::<<N::PairingCurve as PairingEngine>::Fr>(&input, epoch_challenge.degree()))
     }
 }

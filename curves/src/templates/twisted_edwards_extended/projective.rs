@@ -274,30 +274,32 @@ impl<P: Parameters> ProjectiveCurve for Projective<P> {
         // 3.3 Doubling in E^e
         // Source: https://www.hyperelliptic.org/EFD/g1p/data/twisted/extended/doubling/dbl-2008-hwcd
 
-        // A = X1^2
-        let a = self.x.square();
-        // B = Y1^2
-        let b = self.y.square();
-        // C = 2 * Z1^2
-        let c = self.z.square().double();
-        // D = a * A
-        let d = P::mul_by_a(&a);
-        // E = (X1 + Y1)^2 - A - B
-        let e = (self.x + self.y).square() - a - b;
-        // G = D + B
-        let g = d + b;
-        // F = G - C
-        let f = g - c;
-        // H = D - B
-        let h = d - b;
-        // X3 = E * F
-        self.x = e * f;
-        // Y3 = G * H
-        self.y = g * h;
-        // T3 = E * H
-        self.t = e * h;
-        // Z3 = F * G
-        self.z = f * g;
+        self.add_assign(self.clone())
+
+        // // A = X1^2
+        // let a = self.x.square();
+        // // B = Y1^2
+        // let b = self.y.square();
+        // // C = 2 * Z1^2
+        // let c = self.z.square().double();
+        // // D = a * A
+        // let d = P::mul_by_a(&a);
+        // // E = (X1 + Y1)^2 - A - B
+        // let e = (self.x + self.y).square() - a - b;
+        // // G = D + B
+        // let g = d + b;
+        // // F = G - C
+        // let f = g - c;
+        // // H = D - B
+        // let h = d - b;
+        // // X3 = E * F
+        // self.x = e * f;
+        // // Y3 = G * H
+        // self.y = g * h;
+        // // T3 = E * H
+        // self.t = e * h;
+        // // Z3 = F * G
+        // self.z = f * g;
     }
 
     fn to_affine(&self) -> Affine<P> {
