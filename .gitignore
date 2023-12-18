@@ -14,3 +14,4 @@
 !**/beta-h.usrs
 !**/neg-powers-of-beta.usrs
 **/proptest-regressions/
+pattern-*

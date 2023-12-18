@@ -340,7 +340,7 @@ impl Debug for BigInteger384 {
 }
 impl Display for BigInteger384 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_biguint())
+        write!(f, "{:x}", self.to_biguint())
     }
 }
 impl Ord for BigInteger384 {

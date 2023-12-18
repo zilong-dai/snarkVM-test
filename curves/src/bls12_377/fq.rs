@@ -224,6 +224,8 @@ mod tests {
 
 #[test]
 fn test_into(){
+    use std::str::FromStr;
+    use snarkvm_fields::PrimeField;
     let str = "1000";
     let point = Fq::from_str(str).unwrap();
 

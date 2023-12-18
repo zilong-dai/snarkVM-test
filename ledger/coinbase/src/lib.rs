@@ -717,3 +717,41 @@ impl<N: Network> CoinbasePuzzle<N> {
         Ok(hash_to_polynomial::<<N::PairingCurve as PairingEngine>::Fr>(&input, epoch_challenge.degree()))
     }
 }
+
+
+#[test]
+fn test_point_to_string(){
+    use rand::Rng;
+
+    let mut rng = snarkvm_utilities::TestRng::default();
+
+    let mut degree = 1 << 5;
+    let ghat: Vec<snarkvm_curves::templates::twisted_edwards_extended::Affine<EdwardsParameters384>> =
+        (0..degree).map(|_| rng.gen()).collect();
+
+    for pp in ghat.iter(){
+        let xx = pp.x.to_string();
+        println!("{}", xx);
+        // let yy = pp.y.to_string();
+        // let zz = pp.y.to_string();
+
+        let xxx = format!("{:x}", pp.x.to_bigint().to_biguint());
+        println!("{}", xxx);
+        assert_eq!(xx, xxx);
+    }
+}
+
+#[test]
+fn test_point_from_string(){
+
+    use std::str::FromStr;
+    use snarkvm_fields::PrimeField;
+    let str = "ffff";
+    let xx: snarkvm_fields::Fp384<snarkvm_curves::edwards_bls12::FqParameters384> = snarkvm_curves::edwards_bls12::Fq384::from_str(str).unwrap();
+    let yy: snarkvm_fields::Fp384<snarkvm_curves::edwards_bls12::FqParameters384> = snarkvm_curves::edwards_bls12::Fq384::from_str(str).unwrap();
+
+    let point = snarkvm_curves::templates::twisted_edwards_extended::Affine::<EdwardsParameters384>::new(xx, yy, xx*yy);
+
+    println!("{:?}", point);
+
+}

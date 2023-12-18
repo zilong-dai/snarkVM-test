@@ -563,29 +563,29 @@ fn test_msm() {
     // let two = Fq::one() + Fq::one();
     // let three = Fq::one() + Fq::one() + Fq::one();
 
-    for iter in 3..4 {
+    for iter in 0..4 {
         // let iter = 0;
-        let mut inputfile_x = std::fs::File::create(format!("input_x_{}.txt", iter)).expect("create failed");
-        let mut inputfile_y = std::fs::File::create(format!("input_y_{}.txt", iter)).expect("create failed");
-        let mut inputfile_z = std::fs::File::create(format!("input_z_{}.txt", iter)).expect("create failed");
-        let mut inputfile_t = std::fs::File::create(format!("input_t_{}.txt", iter)).expect("create failed");
-        let mut inputfile_a_x = std::fs::File::create(format!("input_affine_x_{}.txt", iter)).expect("create failed");
-        let mut inputfile_a_y = std::fs::File::create(format!("input_affine_y_{}.txt", iter)).expect("create failed");
-        let mut scalarfile = std::fs::File::create(format!("scalar_{}.txt", iter)).expect("create failed");
-        let mut outputfile = std::fs::File::create(format!("output_{}.txt", iter)).expect("create failed");
+        let mut inputfile_x = std::fs::File::create(format!("src/msm/pattern/input_x_{}.txt", iter)).expect("create failed");
+        let mut inputfile_y = std::fs::File::create(format!("src/msm/pattern/input_y_{}.txt", iter)).expect("create failed");
+        let mut inputfile_z = std::fs::File::create(format!("src/msm/pattern/input_z_{}.txt", iter)).expect("create failed");
+        let mut inputfile_t = std::fs::File::create(format!("src/msm/pattern/input_t_{}.txt", iter)).expect("create failed");
+        let mut inputfile_a_x = std::fs::File::create(format!("src/msm/pattern/input_affine_x_{}.txt", iter)).expect("create failed");
+        let mut inputfile_a_y = std::fs::File::create(format!("src/msm/pattern/input_affine_y_{}.txt", iter)).expect("create failed");
+        let mut scalarfile = std::fs::File::create(format!("src/msm/pattern/scalar_{}.txt", iter)).expect("create failed");
+        let mut outputfile = std::fs::File::create(format!("src/msm/pattern/output_{}.txt", iter)).expect("create failed");
         let mut outputfile_affine =
-            std::fs::File::create(format!("output_affine_{}.txt", iter)).expect("create failed");
-        let mut bucketfile1 = std::fs::File::create(format!("bucket1_{}.txt", iter)).expect("create failed");
-        let mut bucket_mid_file1 = std::fs::File::create(format!("bucket_mid_{}.txt", iter)).expect("create failed");
+            std::fs::File::create(format!("src/msm/pattern/output_affine_{}.txt", iter)).expect("create failed");
+        let mut bucketfile1 = std::fs::File::create(format!("src/msm/pattern/bucket1_{}.txt", iter)).expect("create failed");
+        let mut bucket_mid_file1 = std::fs::File::create(format!("src/msm/pattern/bucket_mid_{}.txt", iter)).expect("create failed");
         let mut bucket_mid_affinefile1 =
-            std::fs::File::create(format!("bucket_mid_affine_{}.txt", iter)).expect("create failed");
-        let mut bucketfile2 = std::fs::File::create(format!("bucket2_{}.txt", iter)).expect("create failed");
+            std::fs::File::create(format!("src/msm/pattern/bucket_mid_affine_{}.txt", iter)).expect("create failed");
+        let mut bucketfile2 = std::fs::File::create(format!("src/msm/pattern/bucket2_{}.txt", iter)).expect("create failed");
         let mut bucketfile_affine1 =
-            std::fs::File::create(format!("bucket_affine_1_{}.txt", iter)).expect("create failed");
+            std::fs::File::create(format!("src/msm/pattern/bucket_affine_1_{}.txt", iter)).expect("create failed");
         let mut bucketfile_affine2 =
-            std::fs::File::create(format!("bucket_affine_2_{}.txt", iter)).expect("create failed");
+            std::fs::File::create(format!("src/msm/pattern/bucket_affine_2_{}.txt", iter)).expect("create failed");
         let mut bucket_sum_file =
-            std::fs::File::create(format!("bucket_sum_file_{}.txt", iter)).expect("create failed");
+            std::fs::File::create(format!("src/msm/pattern/bucket_sum_file_{}.txt", iter)).expect("create failed");
         // let mut inputfile_x = std::fs::File::create("input_x.txt").expect("create failed");
         // let mut inputfile_y = std::fs::File::create("input_y.txt").expect("create failed");
         // let mut scalarfile = std::fs::File::create("scalar.txt").expect("create failed");
@@ -593,12 +593,35 @@ fn test_msm() {
         // let mut outputfile_affine = std::fs::File::create("output_affine.txt").expect("create failed");
         // let mut bucketfile = std::fs::File::create("bucket.txt").expect("create failed");
 
-        let degree = 1 << 13;
+        let mut degree = 1 << 13;
         let bases_affine: Vec<twisted_edwards_extended::Affine<EdwardsParameters384>> =
             (0..degree).map(|_| rng.gen()).collect();
+        
+        let mut bucket_affine_points = Vec::new();
+        
+        for base in bases_affine.iter() {
+            let mut base_128 = base.clone().to_projective();
+            for _ in 0..128{
+                base_128.double_in_place();
+            }
+
+            let base_128_affine = base_128.clone().to_affine();
+            bucket_affine_points.push(base_128_affine.clone());
+
+            writeln!(&inputfile_a_x, "{:x}", base_128_affine.x.to_bigint().to_biguint()).unwrap();
+            writeln!(&inputfile_a_y, "{:x}", base_128_affine.y.to_bigint().to_biguint()).unwrap();
+    
+
+            base_128 = base_128.to_affine().to_projective();
+            writeln!(&inputfile_x, "{:x}", base_128.x.to_bigint().to_biguint()).unwrap();
+            writeln!(&inputfile_y, "{:x}", base_128.y.to_bigint().to_biguint()).unwrap();
+            writeln!(&inputfile_z, "{:x}", base_128.z.to_bigint().to_biguint()).unwrap();
+            writeln!(&inputfile_t, "{:x}", base_128.t.to_bigint().to_biguint()).unwrap();
+        }
 
         for base in bases_affine.iter() {
             // let base_affine = base.to_affine().clone();
+            bucket_affine_points.push(base.clone());
             writeln!(&inputfile_a_x, "{:x}", base.x.to_bigint().to_biguint()).unwrap();
             writeln!(&inputfile_a_y, "{:x}", base.y.to_bigint().to_biguint()).unwrap();
 
@@ -615,6 +638,7 @@ fn test_msm() {
         let mut scalars: Vec<BigInteger256> = Vec::new();
         let mut scalar_u8: Vec<u8> = Vec::new();
 
+        degree = 1 << 14;
         if iter == 0 {
             // fix scalar
             let s = rng.gen::<u8>();
@@ -644,7 +668,7 @@ fn test_msm() {
                 writeln!(&scalarfile, "{:x}", s).unwrap();
             }
         } else if iter == 3 {
-            // scalar: 0~100
+            // scalar: 0~255
             scalar_u8 = (0..degree).map(|_| rng.gen::<u8>()).collect();
 
             // let scalar_u8: Vec<u8> = (0..degree).map(|_| rng.gen::<u8>()).collect();
@@ -663,16 +687,16 @@ fn test_msm() {
         //     writeln!(&scalarfile, "{:x}", s).unwrap();
         // }
 
-        // let commitment: twisted_edwards_extended::Affine<EdwardsParameters384> =
-        //     VariableBase::msm(&bases, &scalars);
-        // println!("commitment {:?}", commitment.to_affine());
+        let commitment: twisted_edwards_extended::Affine<EdwardsParameters384> =
+            VariableBase::msm(&bucket_affine_points, &scalars).into();
+        println!("commitment {:?}", commitment);
 
         // print bucket
         let bucket_size = 1 << 8;
         let mut bucket_point = vec![twisted_edwards_extended::Projective::<EdwardsParameters384>::zero(); bucket_size];
         for i in 0..degree {
             let index = scalar_u8[i] as usize;
-            bucket_point[index].add_assign(&bases[i]);
+            bucket_point[index].add_assign(&bucket_affine_points[i].to_projective());
 
             if index == 2 {
                 let x = bucket_point[2].x.to_bigint().to_biguint();
@@ -719,6 +743,7 @@ fn test_msm() {
 
             bucket_sum.add_assign(&mul_bucket);
         }
+        assert_eq!(bucket_sum, commitment);
 
         println!(
             "{:x} {:x}",
