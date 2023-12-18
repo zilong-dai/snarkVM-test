@@ -28,16 +28,16 @@ mod tests;
 use console::{
     account::Address,
     prelude::{anyhow, bail, cfg_iter, ensure, has_duplicates, Network, Result, ToBytes},
-    program::cfg_into_iter, network::Testnet3,
+    program::cfg_into_iter, network::Testnet3, types::Scalar,
 };
 use snarkvm_algorithms::{
     fft::{DensePolynomial, EvaluationDomain},
     polycommit::kzg10::{UniversalParams as SRS, KZG10, KZGCommitment}, msm::VariableBase,
 };
-use snarkvm_curves::{PairingEngine, ProjectiveCurve, templates::twisted_edwards_extended::{Affine, Projective}, edwards_bls12::{EdwardsParameters384}, bls12_377::{G1Affine, Bls12_377G1Parameters, Fr}};
+use snarkvm_curves::{PairingEngine, ProjectiveCurve, templates::twisted_edwards_extended::{Affine, Projective}, edwards_bls12::{EdwardsParameters384}, bls12_377::{G1Affine, Bls12_377G1Parameters, Fr}, AffineCurve};
 use snarkvm_fields::{PrimeField, Zero, One, Fp256};
 use snarkvm_synthesizer_snark::UniversalSRS;
-use snarkvm_utilities::{cfg_zip_fold, BigInteger, BigInteger256};
+use snarkvm_utilities::{cfg_zip_fold, BigInteger, BigInteger256, FromBits, FromBytes};
 
 use aleo_std::prelude::*;
 use std::{sync::Arc, time::Instant, ops::AddAssign};
@@ -77,9 +77,16 @@ impl CoinbasePuzzle<Testnet3>{
         let precompute_fft_duration = precompute_fft_start.elapsed();
         println!("Time elapsed in precompute fft() is: {:?}", precompute_fft_duration);
 
-        let mut ghat = Vec::new();
-        for i in 0..c_evaluations.len() / 2 {
-            ghat.push(c_g[i].clone().to_affine().to_te_affine());
+        let mut ghat = vec![Affine::<EdwardsParameters384>::zero();c_g.len()];
+        for i in 0..c_g.len() / 2 {
+            let point = c_g[i].clone().to_affine().to_te_affine();
+            let mut point128 = point.clone().to_projective();
+            for _ in 0..128{
+                point128.double_in_place();
+            }
+
+            ghat[i] = point128.to_affine();
+            ghat[i + c_g.len() / 2] = point;
         }
         Ok(ghat)
     }
@@ -368,6 +375,86 @@ impl CoinbasePuzzle<Testnet3>{
 
         Ok((epoch_challenge.epoch_number(), partial_solution))
     }
+    
+    // test 2<<14 points
+    pub fn prove5(
+        &self,
+        ghat: Vec<Affine<EdwardsParameters384>>,
+        epoch_challenge: &EpochChallenge<Testnet3>,
+        address: Address<Testnet3>,
+        nonce: u64,
+        minimum_proof_target: Option<u64>,
+        rep: u64,
+    ) -> Result<(u32, PartialSolution<Testnet3>)> {
+        let pk: &Arc<CoinbaseProvingKey<Testnet3>> = match self {
+            Self::Prover(coinbase_proving_key) => coinbase_proving_key,
+            Self::Verifier(_) => bail!("Cannot prove the coinbase puzzle with a verifier"),
+        };
+
+        // let precompute_start = Instant::now();
+        // let ghat: Vec<Affine<EdwardsParameters384>> = self.precompute3(epoch_challenge).unwrap();
+
+        use std::io::Write;
+
+
+
+        let miner_start: Instant = Instant::now();
+        let polynomial: DensePolynomial<_> = Self::prover_polynomial(epoch_challenge, address, nonce).unwrap();
+
+        // let polynomial = epoch_challenge.epoch_polynomial().clone();
+        let bases = ghat.clone();
+
+        // let scalars: Vec<Fp256<snarkvm_curves::edwards_bls12::FrParameters>> = polynomial.coeffs.iter().map(|poly| {println!("{:?}", poly); Fp256::<snarkvm_curves::edwards_bls12::FrParameters>::from_bigint(poly.0).unwrap()}).collect();
+        use snarkvm_curves::edwards_bls12::Fr253;
+        let scalars: Vec<Fr253> = polynomial.coeffs.clone();
+
+        let scalars = scalars.iter().map(|s| s.to_bigint()).collect::<Vec<_>>();
+        // use snarkvm_utilities::Read;
+        let mut scalars_lh =  vec![BigInteger256::from(0); bases.len()];
+        for i in 0..bases.len()/2 {
+            let sca = scalars[i].to_bytes_le().unwrap();
+            let mut sh128 = sca.clone();
+            let mut sl128 = sca.clone();
+            for (i, s) in sh128.iter_mut().enumerate(){
+                if i >= 16 {
+                    *s = 0;
+                }
+            }
+            // for (i, s) in sl128.iter_mut().rev().enumerate(){
+            //     if i < 16 {
+            //         *s = 0;
+            //     }
+            // }
+            for i in 0..16{
+                sl128[i] = sl128[16+i];
+                sl128[16 + i] = 0;
+            }
+            // println!("{:x} ", scalars[i].to_biguint());
+            let h128 = BigInteger256::read_le(&sl128[..]).unwrap();
+            let l128 = BigInteger256::read_le(&sh128[..]).unwrap();
+            // println!("{:x} {:x}", h128.to_biguint(), l128.to_biguint());
+            scalars_lh[i] = h128;
+            scalars_lh[i + bases.len()/2] = l128;
+        }
+        println!("{:x} ", scalars[0].to_biguint());
+        println!("{:x} {:x} ", scalars_lh[0].to_biguint(), scalars_lh[scalars.len()].to_biguint());
+
+        let mut commitment = VariableBase::msm(&bases, &scalars_lh);
+        // println!("prove4 commitment sw {:?}", commitment.to_affine().to_sw_affine());
+
+        let base2: Vec<Affine<EdwardsParameters384>> = bases.iter().enumerate().filter(|(i, _)| 2 * i >= bases.len()).map(|(i, s)| s.clone()).collect();
+        let mut commitment2 = VariableBase::msm(&base2, &scalars);
+
+        println!("{:?} ", bases[scalars.len()]);
+        println!("{:?} ", base2[0]);
+
+        assert_eq!(commitment, commitment2);
+        let commitment = KZGCommitment(commitment.to_affine().to_sw_affine());
+
+        let partsolution = PartialSolution::new(address, nonce, commitment);
+
+        Ok((epoch_challenge.epoch_number(), partsolution))
+    }
 }
 
 impl<N: Network> CoinbasePuzzle<N> {
@@ -526,7 +613,6 @@ impl<N: Network> CoinbasePuzzle<N> {
         // for i in 0..c_evaluations.len(){
         //     c_g.push(pk_lag_basis[i]*c_evaluations[i]);
         // }
-
         // pk.product_domain.fft_in_place(&mut c_g);
         // let mut ghat = Vec::new();
         // for i in 0..c_evaluations.len()/2{
