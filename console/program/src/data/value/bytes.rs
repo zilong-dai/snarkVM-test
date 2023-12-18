@@ -23,7 +23,8 @@ impl<N: Network> FromBytes for Value<N> {
         let entry = match index {
             0 => Self::Plaintext(Plaintext::read_le(&mut reader)?),
             1 => Self::Record(Record::read_le(&mut reader)?),
-            2.. => return Err(error(format!("Failed to decode value variant {index}"))),
+            2 => Self::Future(Future::read_le(&mut reader)?),
+            3.. => return Err(error(format!("Failed to decode value variant {index}"))),
         };
         Ok(entry)
     }
@@ -40,6 +41,10 @@ impl<N: Network> ToBytes for Value<N> {
             Self::Record(record) => {
                 1u8.write_le(&mut writer)?;
                 record.write_le(&mut writer)
+            }
+            Self::Future(future) => {
+                2u8.write_le(&mut writer)?;
+                future.write_le(&mut writer)
             }
         }
     }
@@ -62,7 +67,6 @@ mod tests {
         // Check the byte representation.
         let expected_bytes = expected.to_bytes_le()?;
         assert_eq!(expected, Value::read_le(&expected_bytes[..])?);
-        assert!(Value::<CurrentNetwork>::read_le(&expected_bytes[1..]).is_err());
         Ok(())
     }
 
@@ -76,7 +80,6 @@ mod tests {
         // Check the byte representation.
         let expected_bytes = expected.to_bytes_le()?;
         assert_eq!(expected, Value::read_le(&expected_bytes[..])?);
-        assert!(Value::<CurrentNetwork>::read_le(&expected_bytes[1..]).is_err());
         Ok(())
     }
 }

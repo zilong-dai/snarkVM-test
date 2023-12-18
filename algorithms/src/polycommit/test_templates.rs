@@ -116,10 +116,9 @@ pub fn bad_degree_bound_test<E: PairingEngine, S: AlgebraicSponge<E::Fq, 2>>() -
         let proof = SonicKZG10::batch_open(
             universal_prover,
             &ck,
-            &polynomials,
-            &comms,
+            polynomials.iter(),
             &query_set,
-            &rands,
+            rands.iter(),
             &mut sponge_for_open,
         )?;
         let mut sponge_for_check = S::new();
@@ -213,10 +212,9 @@ pub fn lagrange_test_template<E: PairingEngine, S: AlgebraicSponge<E::Fq, 2>>()
         let proof = SonicKZG10::batch_open(
             universal_prover,
             &ck,
-            &polynomials,
-            &comms,
+            polynomials.iter(),
             &query_set,
-            &rands,
+            rands.iter(),
             &mut sponge_for_open,
         )?;
         let mut sponge_for_check = S::new();
@@ -344,10 +342,9 @@ where
         let proof = SonicKZG10::batch_open(
             universal_prover,
             &ck,
-            &polynomials,
-            &comms,
+            polynomials.iter(),
             &query_set,
-            &rands,
+            rands.iter(),
             &mut sponge_for_open,
         )?;
         let mut sponge_for_check = S::new();
@@ -507,10 +504,9 @@ fn equation_test_template<E: PairingEngine, S: AlgebraicSponge<E::Fq, 2>>(
             universal_prover,
             &ck,
             &linear_combinations,
-            &polynomials,
-            &comms,
-            &query_set,
+            polynomials,
             &rands,
+            &query_set,
             &mut sponge_for_open,
         )?;
         println!("Generated proof");
@@ -526,10 +522,6 @@ fn equation_test_template<E: PairingEngine, S: AlgebraicSponge<E::Fq, 2>>(
         )?;
         if !result {
             println!("Failed with {num_polynomials} polynomials, num_points_in_query_set: {num_points_in_query_set:?}");
-            println!("Degree of polynomials:");
-            for poly in polynomials {
-                println!("Degree: {:?}", poly.degree());
-            }
         }
         assert!(result, "proof was incorrect, equations: {linear_combinations:#?}");
 

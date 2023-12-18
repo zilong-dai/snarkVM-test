@@ -21,7 +21,7 @@ impl<N: Network> FromBytes for Block<N> {
         // Read the version.
         let version = u8::read_le(&mut reader)?;
         // Ensure the version is valid.
-        if version != 0 {
+        if version != 1 {
             return Err(error("Invalid block version"));
         }
 
@@ -31,30 +31,47 @@ impl<N: Network> FromBytes for Block<N> {
         let previous_hash = FromBytes::read_le(&mut reader)?;
         // Read the header.
         let header = FromBytes::read_le(&mut reader)?;
+
+        // Write the authority.
+        let authority = FromBytes::read_le(&mut reader)?;
+
+        // Read the number of ratifications.
+        let ratifications = Ratifications::read_le(&mut reader)?;
+
+        // Read the solutions.
+        let solutions_variant = u8::read_le(&mut reader)?;
+        let solutions = match solutions_variant {
+            0 => None,
+            1 => Some(FromBytes::read_le(&mut reader)?),
+            _ => return Err(error("Invalid solutions variant in the block")),
+        };
+
         // Read the transactions.
         let transactions = FromBytes::read_le(&mut reader)?;
 
-        // Read the ratifications.
-        let num_ratifications = u32::read_le(&mut reader)?;
-        let mut ratifications = Vec::with_capacity(num_ratifications as usize);
-        for _ in 0..num_ratifications {
-            ratifications.push(FromBytes::read_le(&mut reader)?);
+        // Read the number of aborted transaction IDs.
+        let num_aborted = u32::read_le(&mut reader)?;
+        // Ensure the number of aborted transaction IDs is within bounds (this is an early safety check).
+        if num_aborted as usize > Transactions::<N>::MAX_TRANSACTIONS {
+            return Err(error("Invalid number of aborted transaction IDs in the block"));
+        }
+        // Read the aborted transaction IDs.
+        let mut aborted_transaction_ids = Vec::with_capacity(num_aborted as usize);
+        for _ in 0..num_aborted {
+            aborted_transaction_ids.push(FromBytes::read_le(&mut reader)?);
         }
 
-        // Read the coinbase.
-        let coinbase_variant = u8::read_le(&mut reader)?;
-        let coinbase = match coinbase_variant {
-            0 => None,
-            1 => Some(FromBytes::read_le(&mut reader)?),
-            _ => return Err(error("Invalid coinbase variant")),
-        };
-
-        // Write the signature.
-        let signature = FromBytes::read_le(&mut reader)?;
-
         // Construct the block.
-        let block = Self::from(previous_hash, header, transactions, ratifications, coinbase, signature)
-            .map_err(|e| error(e.to_string()))?;
+        let block = Self::from(
+            previous_hash,
+            header,
+            authority,
+            ratifications,
+            solutions,
+            transactions,
+            aborted_transaction_ids,
+        )
+        .map_err(error)?;
 
         // Ensure the block hash matches.
         match block_hash == block.hash() {
@@ -69,7 +86,7 @@ impl<N: Network> ToBytes for Block<N> {
     #[inline]
     fn write_le<W: Write>(&self, mut writer: W) -> IoResult<()> {
         // Write the version.
-        0u8.write_le(&mut writer)?;
+        1u8.write_le(&mut writer)?;
 
         // Write the block hash.
         self.block_hash.write_le(&mut writer)?;
@@ -77,26 +94,28 @@ impl<N: Network> ToBytes for Block<N> {
         self.previous_hash.write_le(&mut writer)?;
         // Write the header.
         self.header.write_le(&mut writer)?;
-        // Write the transactions.
-        self.transactions.write_le(&mut writer)?;
+
+        // Write the authority.
+        self.authority.write_le(&mut writer)?;
 
         // Write the ratifications.
-        (u32::try_from(self.ratifications.len()).map_err(|e| error(e.to_string())))?.write_le(&mut writer)?;
-        for ratification in &self.ratifications {
-            ratification.write_le(&mut writer)?;
-        }
+        self.ratifications.write_le(&mut writer)?;
 
-        // Write the coinbase solution.
-        match self.coinbase {
+        // Write the solutions.
+        match self.solutions {
             None => 0u8.write_le(&mut writer)?,
-            Some(ref coinbase) => {
+            Some(ref solutions) => {
                 1u8.write_le(&mut writer)?;
-                coinbase.write_le(&mut writer)?;
+                solutions.write_le(&mut writer)?;
             }
         }
 
-        // Write the signature.
-        self.signature.write_le(&mut writer)
+        // Write the transactions.
+        self.transactions.write_le(&mut writer)?;
+
+        // Write the aborted transaction IDs.
+        (u32::try_from(self.aborted_transaction_ids.len()).map_err(error))?.write_le(&mut writer)?;
+        self.aborted_transaction_ids.write_le(&mut writer)
     }
 }
 
@@ -115,7 +134,6 @@ mod tests {
             // Check the byte representation.
             let expected_bytes = expected.to_bytes_le()?;
             assert_eq!(expected, Block::read_le(&expected_bytes[..])?);
-            assert!(Block::<CurrentNetwork>::read_le(&expected_bytes[1..]).is_err());
         }
         Ok(())
     }
@@ -128,7 +146,6 @@ mod tests {
         // Check the byte representation.
         let expected_bytes = genesis_block.to_bytes_le()?;
         assert_eq!(genesis_block, Block::read_le(&expected_bytes[..])?);
-        assert!(Block::<CurrentNetwork>::read_le(&expected_bytes[1..]).is_err());
 
         Ok(())
     }

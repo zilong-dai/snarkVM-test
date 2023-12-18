@@ -17,25 +17,49 @@ mod serialize;
 mod string;
 
 use console::{network::prelude::*, types::Address};
+use ledger_committee::Committee;
+
+use indexmap::IndexMap;
 
 type Variant = u8;
+/// A helper type to represent the public balances.
+type PublicBalances<N> = IndexMap<Address<N>, u64>;
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum Ratify<N: Network> {
-    /// The proving reward.
-    ProvingReward(Address<N>, u64),
-    /// The staking reward.
-    StakingReward(Address<N>, u64),
+    /// The genesis.
+    Genesis(Committee<N>, PublicBalances<N>),
+    /// The block reward.
+    BlockReward(u64),
+    /// The puzzle reward.
+    PuzzleReward(u64),
+}
+
+impl<N: Network> Ratify<N> {
+    /// Returns the ratification ID.
+    pub fn to_id(&self) -> Result<N::RatificationID> {
+        Ok(N::hash_bhp1024(&self.to_bytes_le()?.to_bits_le())?.into())
+    }
 }
 
 #[cfg(test)]
-mod test_helpers {
+pub(crate) mod test_helpers {
     use super::*;
     use console::network::Testnet3;
 
     type CurrentNetwork = Testnet3;
 
-    pub(crate) fn sample_ratify_objects(rng: &mut TestRng) -> Vec<Ratify<CurrentNetwork>> {
-        vec![Ratify::ProvingReward(Address::new(rng.gen()), 100), Ratify::StakingReward(Address::new(rng.gen()), 200)]
+    pub(crate) fn sample_ratifications(rng: &mut TestRng) -> Vec<Ratify<CurrentNetwork>> {
+        let committee = ledger_committee::test_helpers::sample_committee(rng);
+        let mut public_balances = PublicBalances::new();
+        for (address, _) in committee.members().iter() {
+            public_balances.insert(*address, rng.gen());
+        }
+
+        vec![
+            Ratify::Genesis(committee, public_balances),
+            Ratify::BlockReward(rng.gen()),
+            Ratify::PuzzleReward(rng.gen()),
+        ]
     }
 }

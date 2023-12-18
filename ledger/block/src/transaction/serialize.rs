@@ -29,7 +29,7 @@ impl<N: Network> Serialize for Transaction<N> {
                     transaction.end()
                 }
                 Self::Execute(id, execution, fee) => {
-                    let mut transaction = serializer.serialize_struct("Transaction", 4)?;
+                    let mut transaction = serializer.serialize_struct("Transaction", 3 + fee.is_some() as usize)?;
                     transaction.serialize_field("type", "execute")?;
                     transaction.serialize_field("id", &id)?;
                     transaction.serialize_field("execution", &execution)?;
@@ -119,8 +119,10 @@ mod tests {
         let rng = &mut TestRng::default();
 
         for expected in [
-            crate::transaction::test_helpers::sample_deployment_transaction(rng),
-            crate::transaction::test_helpers::sample_execution_transaction_with_fee(rng),
+            crate::transaction::test_helpers::sample_deployment_transaction(true, rng),
+            crate::transaction::test_helpers::sample_deployment_transaction(false, rng),
+            crate::transaction::test_helpers::sample_execution_transaction_with_fee(true, rng),
+            crate::transaction::test_helpers::sample_execution_transaction_with_fee(false, rng),
         ]
         .into_iter()
         {
@@ -140,8 +142,10 @@ mod tests {
         let rng = &mut TestRng::default();
 
         for expected in [
-            crate::transaction::test_helpers::sample_deployment_transaction(rng),
-            crate::transaction::test_helpers::sample_execution_transaction_with_fee(rng),
+            crate::transaction::test_helpers::sample_deployment_transaction(true, rng),
+            crate::transaction::test_helpers::sample_deployment_transaction(false, rng),
+            crate::transaction::test_helpers::sample_execution_transaction_with_fee(true, rng),
+            crate::transaction::test_helpers::sample_execution_transaction_with_fee(false, rng),
         ]
         .into_iter()
         {

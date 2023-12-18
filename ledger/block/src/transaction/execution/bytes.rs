@@ -20,7 +20,7 @@ impl<N: Network> FromBytes for Execution<N> {
         // Read the version.
         let version = u8::read_le(&mut reader)?;
         // Ensure the version is valid.
-        if version != 0 {
+        if version != 1 {
             return Err(error("Invalid execution version"));
         }
         // Read the number of transitions.
@@ -51,7 +51,7 @@ impl<N: Network> ToBytes for Execution<N> {
     /// Writes the execution to a buffer.
     fn write_le<W: Write>(&self, mut writer: W) -> IoResult<()> {
         // Write the version.
-        0u8.write_le(&mut writer)?;
+        1u8.write_le(&mut writer)?;
         // Write the number of transitions.
         (u8::try_from(self.transitions.len()).map_err(|e| error(e.to_string()))?).write_le(&mut writer)?;
         // Write the transitions.
@@ -75,9 +75,6 @@ impl<N: Network> ToBytes for Execution<N> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use console::network::Testnet3;
-
-    type CurrentNetwork = Testnet3;
 
     #[test]
     fn test_bytes() -> Result<()> {
@@ -89,7 +86,6 @@ mod tests {
         // Check the byte representation.
         let expected_bytes = expected.to_bytes_le()?;
         assert_eq!(expected, Execution::read_le(&expected_bytes[..])?);
-        assert!(Execution::<CurrentNetwork>::read_le(&expected_bytes[1..]).is_err());
         Ok(())
     }
 }

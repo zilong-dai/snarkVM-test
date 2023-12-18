@@ -36,7 +36,7 @@ pub type Randomness<E> = kzg10::KZGRandomness<E>;
 pub type Commitment<E> = kzg10::KZGCommitment<E>;
 
 /// `CommitterKey` is used to commit to, and create evaluation proofs for, a given polynomial.
-#[derive(Clone, Debug, Default, Hash, CanonicalSerialize, CanonicalDeserialize, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct CommitterKey<E: PairingEngine> {
     /// The key used to commit to polynomials.
     pub powers_of_beta_g: Vec<E::G1Affine>,
@@ -150,26 +150,19 @@ impl<E: PairingEngine> FromBytes for CommitterKey<E> {
 
         // Construct the hash of the group elements.
         let mut hash_input = powers_of_beta_g.to_bytes_le().map_err(|_| error("Could not serialize powers"))?;
-
-        hash_input.extend_from_slice(
-            &powers_of_beta_times_gamma_g
-                .to_bytes_le()
-                .map_err(|_| error("Could not serialize powers_of_beta_times_gamma_g"))?,
-        );
+        powers_of_beta_times_gamma_g
+            .write_le(&mut hash_input)
+            .map_err(|_| error("Could not serialize powers_of_beta_times_gamma_g"))?;
 
         if let Some(shifted_powers_of_beta_g) = &shifted_powers_of_beta_g {
-            hash_input.extend_from_slice(
-                &shifted_powers_of_beta_g
-                    .to_bytes_le()
-                    .map_err(|_| error("Could not serialize shifted_powers_of_beta_g"))?,
-            );
+            shifted_powers_of_beta_g
+                .write_le(&mut hash_input)
+                .map_err(|_| error("Could not serialize shifted_powers_of_beta_g"))?;
         }
 
         if let Some(shifted_powers_of_beta_times_gamma_g) = &shifted_powers_of_beta_times_gamma_g {
             for value in shifted_powers_of_beta_times_gamma_g.values() {
-                hash_input.extend_from_slice(
-                    &value.to_bytes_le().map_err(|_| error("Could not serialize shifted_power_of_gamma_g"))?,
-                );
+                value.write_le(&mut hash_input).map_err(|_| error("Could not serialize shifted_power_of_gamma_g"))?;
             }
         }
 
@@ -249,27 +242,19 @@ impl<E: PairingEngine> ToBytes for CommitterKey<E> {
 
         // Construct the hash of the group elements.
         let mut hash_input = self.powers_of_beta_g.to_bytes_le().map_err(|_| error("Could not serialize powers"))?;
-
-        hash_input.extend_from_slice(
-            &self
-                .powers_of_beta_times_gamma_g
-                .to_bytes_le()
-                .map_err(|_| error("Could not serialize powers_of_beta_times_gamma_g"))?,
-        );
+        self.powers_of_beta_times_gamma_g
+            .write_le(&mut hash_input)
+            .map_err(|_| error("Could not serialize powers_of_beta_times_gamma_g"))?;
 
         if let Some(shifted_powers_of_beta_g) = &self.shifted_powers_of_beta_g {
-            hash_input.extend_from_slice(
-                &shifted_powers_of_beta_g
-                    .to_bytes_le()
-                    .map_err(|_| error("Could not serialize shifted_powers_of_beta_g"))?,
-            );
+            shifted_powers_of_beta_g
+                .write_le(&mut hash_input)
+                .map_err(|_| error("Could not serialize shifted_powers_of_beta_g"))?;
         }
 
         if let Some(shifted_powers_of_beta_times_gamma_g) = &self.shifted_powers_of_beta_times_gamma_g {
             for value in shifted_powers_of_beta_times_gamma_g.values() {
-                hash_input.extend_from_slice(
-                    &value.to_bytes_le().map_err(|_| error("Could not serialize shifted_power_of_gamma_g"))?,
-                );
+                value.write_le(&mut hash_input).map_err(|_| error("Could not serialize shifted_power_of_gamma_g"))?;
             }
         }
 
@@ -286,7 +271,7 @@ impl<E: PairingEngine> CommitterKey<E> {
 }
 
 /// `CommitterUnionKey` is a union of `CommitterKey`s, useful for multi-circuit batch proofs.
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct CommitterUnionKey<'a, E: PairingEngine> {
     /// The key used to commit to polynomials.
     pub powers_of_beta_g: Option<&'a Vec<E::G1Affine>>,
@@ -538,7 +523,7 @@ impl<B: Borrow<String>> PartialEq<B> for LCTerm {
 pub struct LinearCombination<F> {
     /// The label.
     pub label: String,
-    /// The linear combination of `(coeff, poly_label)` pairs.
+    /// The linear combination of `(poly_label, coeff)` pairs.
     pub terms: BTreeMap<LCTerm, F>,
 }
 
@@ -675,8 +660,6 @@ pub fn evaluate_query_set<'a, F: PrimeField>(
 pub struct BatchLCProof<E: PairingEngine> {
     /// Evaluation proof.
     pub proof: BatchProof<E>,
-    /// Evaluations required to verify the proof.
-    pub evaluations: Option<Vec<E::Fr>>,
 }
 
 impl<E: PairingEngine> BatchLCProof<E> {

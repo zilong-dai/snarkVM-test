@@ -27,7 +27,7 @@ pub struct R1CS<F: PrimeField> {
     constants: Vec<Variable<F>>,
     public: Vec<Variable<F>>,
     private: Vec<Variable<F>>,
-    constraints: Vec<Constraint<F>>,
+    constraints: Vec<Rc<Constraint<F>>>,
     counter: Counter<F>,
     nonzeros: (u64, u64, u64),
 }
@@ -37,7 +37,7 @@ impl<F: PrimeField> R1CS<F> {
     pub(crate) fn new() -> Self {
         Self {
             constants: Default::default(),
-            public: vec![Variable::Public(0u64, Rc::new(F::one()))],
+            public: vec![Variable::Public(Rc::new((0u64, F::one())))],
             private: Default::default(),
             constraints: Default::default(),
             counter: Default::default(),
@@ -65,7 +65,7 @@ impl<F: PrimeField> R1CS<F> {
 
     /// Returns a new public variable with the given value and scope.
     pub(crate) fn new_public(&mut self, value: F) -> Variable<F> {
-        let variable = Variable::Public(self.public.len() as u64, Rc::new(value));
+        let variable = Variable::Public(Rc::new((self.public.len() as u64, value)));
         self.public.push(variable.clone());
         self.counter.increment_public();
         variable
@@ -73,7 +73,7 @@ impl<F: PrimeField> R1CS<F> {
 
     /// Returns a new private variable with the given value and scope.
     pub(crate) fn new_private(&mut self, value: F) -> Variable<F> {
-        let variable = Variable::Private(self.private.len() as u64, Rc::new(value));
+        let variable = Variable::Private(Rc::new((self.private.len() as u64, value)));
         self.private.push(variable.clone());
         self.counter.increment_private();
         variable
@@ -86,13 +86,42 @@ impl<F: PrimeField> R1CS<F> {
         self.nonzeros.1 += b_nonzeros;
         self.nonzeros.2 += c_nonzeros;
 
-        self.constraints.push(constraint.clone());
+        let constraint = Rc::new(constraint);
+        self.constraints.push(Rc::clone(&constraint));
         self.counter.add_constraint(constraint);
     }
 
-    /// Returns `true` if all constraints in the environment are satisfied.
-    pub(crate) fn is_satisfied(&self) -> bool {
-        self.constraints.iter().all(|constraint| constraint.is_satisfied())
+    /// Returns `true` if all of the constraints are satisfied.
+    ///
+    /// In addition, when in debug mode, this function also checks that
+    /// all constraints use variables corresponding to the declared variables.
+    pub fn is_satisfied(&self) -> bool {
+        // Ensure all constraints are satisfied.
+        let constraints_satisfied = self.constraints.iter().all(|constraint| constraint.is_satisfied());
+        if !constraints_satisfied {
+            return false;
+        }
+
+        // In debug mode, ensure all constraints use variables corresponding to the declared variables.
+        #[cfg(not(debug_assertions))]
+        return true;
+        #[cfg(debug_assertions)]
+        self.constraints.iter().all(|constraint| {
+            let (a, b, c) = constraint.to_terms();
+            [a, b, c].into_iter().all(|lc| {
+                lc.to_terms().iter().all(|(variable, _)| match variable {
+                    Variable::Constant(_value) => false, // terms should not contain Constants
+                    Variable::Private(private) => {
+                        let (index, value) = private.as_ref();
+                        self.private.get(*index as usize).map_or_else(|| false, |v| v.value() == *value)
+                    }
+                    Variable::Public(public) => {
+                        let (index, value) = public.as_ref();
+                        self.public.get(*index as usize).map_or_else(|| false, |v| v.value() == *value)
+                    }
+                })
+            })
+        })
     }
 
     /// Returns `true` if all constraints in the current scope are satisfied.
@@ -106,27 +135,27 @@ impl<F: PrimeField> R1CS<F> {
     }
 
     /// Returns the number of constants in the constraint system.
-    pub(crate) fn num_constants(&self) -> u64 {
+    pub fn num_constants(&self) -> u64 {
         self.constants.len() as u64
     }
 
     /// Returns the number of public variables in the constraint system.
-    pub(crate) fn num_public(&self) -> u64 {
+    pub fn num_public(&self) -> u64 {
         self.public.len() as u64
     }
 
     /// Returns the number of private variables in the constraint system.
-    pub(crate) fn num_private(&self) -> u64 {
+    pub fn num_private(&self) -> u64 {
         self.private.len() as u64
     }
 
     /// Returns the number of constraints in the constraint system.
-    pub(crate) fn num_constraints(&self) -> u64 {
+    pub fn num_constraints(&self) -> u64 {
         self.constraints.len() as u64
     }
 
     /// Returns the number of nonzeros in the constraint system.
-    pub(crate) fn num_nonzeros(&self) -> (u64, u64, u64) {
+    pub fn num_nonzeros(&self) -> (u64, u64, u64) {
         self.nonzeros
     }
 
@@ -156,17 +185,17 @@ impl<F: PrimeField> R1CS<F> {
     }
 
     /// Returns the public variables in the constraint system.
-    pub(crate) fn to_public_variables(&self) -> &Vec<Variable<F>> {
+    pub fn to_public_variables(&self) -> &Vec<Variable<F>> {
         &self.public
     }
 
     /// Returns the private variables in the constraint system.
-    pub(crate) fn to_private_variables(&self) -> &Vec<Variable<F>> {
+    pub fn to_private_variables(&self) -> &Vec<Variable<F>> {
         &self.private
     }
 
     /// Returns the constraints in the constraint system.
-    pub(crate) fn to_constraints(&self) -> &Vec<Constraint<F>> {
+    pub fn to_constraints(&self) -> &Vec<Rc<Constraint<F>>> {
         &self.constraints
     }
 }

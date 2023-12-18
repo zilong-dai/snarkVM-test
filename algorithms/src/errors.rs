@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{r1cs::SynthesisError, snark::marlin::ahp::AHPError};
+use crate::{r1cs::SynthesisError, snark::varuna::ahp::AHPError};
 use snarkvm_fields::ConstraintFieldError;
 
 #[derive(Debug, Error)]
@@ -43,22 +43,10 @@ pub enum SNARKError {
 
     #[error("Circuit not found")]
     CircuitNotFound,
-
-    #[error("terminated")]
-    Terminated,
 }
 
 impl From<AHPError> for SNARKError {
     fn from(err: AHPError) -> Self {
         SNARKError::Crate("AHPError", format!("{err:?}"))
-    }
-}
-
-impl From<crate::polycommit::PCError> for SNARKError {
-    fn from(err: crate::polycommit::PCError) -> Self {
-        match err {
-            crate::polycommit::PCError::Terminated => SNARKError::Terminated,
-            err => SNARKError::Crate("PCError", format!("{err:?}")),
-        }
     }
 }

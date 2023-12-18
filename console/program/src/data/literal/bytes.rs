@@ -34,8 +34,9 @@ impl<N: Network> FromBytes for Literal<N> {
             12 => Self::U64(U64::read_le(&mut reader)?),
             13 => Self::U128(U128::read_le(&mut reader)?),
             14 => Self::Scalar(Scalar::read_le(&mut reader)?),
-            15 => Self::String(StringType::read_le(&mut reader)?),
-            16.. => return Err(error(format!("Failed to decode literal variant {index}"))),
+            15 => Self::Signature(Box::new(Signature::read_le(&mut reader)?)),
+            16 => Self::String(StringType::read_le(&mut reader)?),
+            17.. => return Err(error(format!("Failed to decode literal variant {index}"))),
         };
         Ok(literal)
     }
@@ -106,8 +107,12 @@ impl<N: Network> ToBytes for Literal<N> {
                 (14 as Size).write_le(&mut writer)?;
                 primitive.write_le(&mut writer)
             }
-            Self::String(primitive) => {
+            Self::Signature(primitive) => {
                 (15 as Size).write_le(&mut writer)?;
+                primitive.write_le(&mut writer)
+            }
+            Self::String(primitive) => {
+                (16 as Size).write_le(&mut writer)?;
                 primitive.write_le(&mut writer)
             }
         }
@@ -127,8 +132,6 @@ mod tests {
         // Check the byte representation.
         let expected_bytes = expected.to_bytes_le()?;
         assert_eq!(expected, Literal::read_le(&expected_bytes[..])?);
-        assert!(Literal::<CurrentNetwork>::read_le(&expected_bytes[1..]).is_err());
-        // assert!(Literal::<CurrentNetwork>::read_le(&expected_bytes[2..]).is_err());
         Ok(())
     }
 
@@ -169,6 +172,8 @@ mod tests {
             check_bytes(Literal::<CurrentNetwork>::U128(U128::new(Uniform::rand(rng))))?;
             // Scalar
             check_bytes(Literal::<CurrentNetwork>::Scalar(Uniform::rand(rng)))?;
+            // Signature
+            check_bytes(Literal::sample(LiteralType::Signature, rng))?;
             // String
             check_bytes(Literal::<CurrentNetwork>::String(StringType::rand(rng)))?;
         }

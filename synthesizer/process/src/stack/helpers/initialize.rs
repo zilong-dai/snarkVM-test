@@ -58,7 +58,7 @@ impl<N: Network> Stack<N> {
 impl<N: Network> Stack<N> {
     /// Inserts the given external stack to the stack.
     #[inline]
-    fn insert_external_stack(&mut self, external_stack: Stack<N>) -> Result<()> {
+    fn insert_external_stack(&mut self, external_stack: Arc<Stack<N>>) -> Result<()> {
         // Retrieve the program ID.
         let program_id = *external_stack.program_id();
         // Ensure the external stack is not already added.
@@ -103,7 +103,7 @@ impl<N: Network> Stack<N> {
         self.register_types.insert(*name, register_types);
 
         // If the function contains a finalize, insert it.
-        if let Some((_, finalize)) = function.finalize() {
+        if let Some(finalize) = function.finalize_logic() {
             // Compute the finalize types.
             let finalize_types = FinalizeTypes::from_finalize(self, finalize)?;
             // Add the finalize name and finalize types to the stack.

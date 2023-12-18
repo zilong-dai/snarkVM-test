@@ -29,8 +29,14 @@ impl<F: PrimeField> From<&crate::Variable<F>> for AssignmentVariable<F> {
     fn from(variable: &crate::Variable<F>) -> Self {
         match variable {
             crate::Variable::Constant(value) => Self::Constant(**value),
-            crate::Variable::Public(index, _) => Self::Public(*index),
-            crate::Variable::Private(index, _) => Self::Private(*index),
+            crate::Variable::Public(index_value) => {
+                let (index, _value) = index_value.as_ref();
+                Self::Public(*index)
+            }
+            crate::Variable::Private(index_value) => {
+                let (index, _value) = index_value.as_ref();
+                Self::Private(*index)
+            }
         }
     }
 }
@@ -38,7 +44,7 @@ impl<F: PrimeField> From<&crate::Variable<F>> for AssignmentVariable<F> {
 #[derive(Clone, Debug)]
 pub struct AssignmentLC<F: PrimeField> {
     constant: F,
-    terms: IndexMap<AssignmentVariable<F>, F>,
+    terms: Vec<(AssignmentVariable<F>, F)>,
 }
 
 impl<F: PrimeField> From<&crate::LinearCombination<F>> for AssignmentLC<F> {
@@ -60,7 +66,7 @@ impl<F: PrimeField> AssignmentLC<F> {
     }
 
     /// Returns the terms of the linear combination.
-    pub const fn terms(&self) -> &IndexMap<AssignmentVariable<F>, F> {
+    pub const fn terms(&self) -> &Vec<(AssignmentVariable<F>, F)> {
         &self.terms
     }
 
@@ -78,8 +84,8 @@ impl<F: PrimeField> AssignmentLC<F> {
 /// and constraint assignments.
 #[derive(Clone, Debug)]
 pub struct Assignment<F: PrimeField> {
-    public: IndexMap<Index, F>,
-    private: IndexMap<Index, F>,
+    public: Vec<(Index, F)>,
+    private: Vec<(Index, F)>,
     constraints: Vec<(AssignmentLC<F>, AssignmentLC<F>, AssignmentLC<F>)>,
 }
 
@@ -103,12 +109,12 @@ impl<F: PrimeField> From<crate::R1CS<F>> for Assignment<F> {
 
 impl<F: PrimeField> Assignment<F> {
     /// Returns the public inputs of the assignment.
-    pub const fn public_inputs(&self) -> &IndexMap<Index, F> {
+    pub const fn public_inputs(&self) -> &Vec<(Index, F)> {
         &self.public
     }
 
     /// Returns the private inputs of the assignment.
-    pub const fn private_inputs(&self) -> &IndexMap<Index, F> {
+    pub const fn private_inputs(&self) -> &Vec<(Index, F)> {
         &self.private
     }
 
@@ -310,7 +316,7 @@ mod tests {
     }
 
     #[test]
-    fn test_marlin() {
+    fn test_varuna() {
         let _candidate_output = create_example_circuit::<Circuit>();
         let assignment = Circuit::eject_assignment_and_reset();
         assert_eq!(0, Circuit::num_constants());
@@ -318,36 +324,36 @@ mod tests {
         assert_eq!(0, Circuit::num_private());
         assert_eq!(0, Circuit::num_constraints());
 
-        // Marlin setup, prove, and verify.
+        // Varuna setup, prove, and verify.
 
         use snarkvm_algorithms::{
             crypto_hash::PoseidonSponge,
-            snark::marlin::{ahp::AHPForR1CS, MarlinHidingMode, MarlinSNARK},
+            snark::varuna::{ahp::AHPForR1CS, VarunaHidingMode, VarunaSNARK},
         };
         use snarkvm_curves::bls12_377::{Bls12_377, Fq};
         use snarkvm_utilities::rand::TestRng;
 
         type FS = PoseidonSponge<Fq, 2, 1>;
-        type MarlinInst = MarlinSNARK<Bls12_377, FS, MarlinHidingMode>;
+        type VarunaInst = VarunaSNARK<Bls12_377, FS, VarunaHidingMode>;
 
         let rng = &mut TestRng::default();
 
-        let max_degree = AHPForR1CS::<Fr, MarlinHidingMode>::max_degree(200, 200, 300).unwrap();
-        let universal_srs = MarlinInst::universal_setup(max_degree).unwrap();
+        let max_degree = AHPForR1CS::<Fr, VarunaHidingMode>::max_degree(200, 200, 300).unwrap();
+        let universal_srs = VarunaInst::universal_setup(max_degree).unwrap();
         let universal_prover = &universal_srs.to_universal_prover().unwrap();
         let universal_verifier = &universal_srs.to_universal_verifier().unwrap();
         let fs_pp = FS::sample_parameters();
 
-        let (index_pk, index_vk) = MarlinInst::circuit_setup(&universal_srs, &assignment).unwrap();
+        let (index_pk, index_vk) = VarunaInst::circuit_setup(&universal_srs, &assignment).unwrap();
         println!("Called circuit setup");
 
-        let proof = MarlinInst::prove(universal_prover, &fs_pp, &index_pk, &assignment, rng).unwrap();
+        let proof = VarunaInst::prove(universal_prover, &fs_pp, &index_pk, &assignment, rng).unwrap();
         println!("Called prover");
 
         let one = <Circuit as Environment>::BaseField::one();
-        assert!(MarlinInst::verify(universal_verifier, &fs_pp, &index_vk, [one, one], &proof).unwrap());
+        assert!(VarunaInst::verify(universal_verifier, &fs_pp, &index_vk, [one, one], &proof).unwrap());
         println!("Called verifier");
         println!("\nShould not verify (i.e. verifier messages should print below):");
-        assert!(!MarlinInst::verify(universal_verifier, &fs_pp, &index_vk, [one, one + one], &proof).unwrap());
+        assert!(!VarunaInst::verify(universal_verifier, &fs_pp, &index_vk, [one, one + one], &proof).unwrap());
     }
 }

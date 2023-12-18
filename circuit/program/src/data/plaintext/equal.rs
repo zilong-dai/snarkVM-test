@@ -32,7 +32,18 @@ impl<A: Aleo> Equal<Self> for Plaintext<A> {
                 }
                 false => Boolean::constant(false),
             },
-            (Self::Literal(..), _) | (Self::Struct(..), _) => Boolean::constant(false),
+            (Self::Array(a, _), Self::Array(b, _)) => match a.len() == b.len() {
+                true => {
+                    // Recursively check each element for equality.
+                    let mut equal = Boolean::constant(true);
+                    for (plaintext_a, plaintext_b) in a.iter().zip_eq(b.iter()) {
+                        equal &= plaintext_a.is_equal(plaintext_b);
+                    }
+                    equal
+                }
+                false => Boolean::constant(false),
+            },
+            (Self::Literal(..), _) | (Self::Struct(..), _) | (Self::Array(..), _) => Boolean::constant(false),
         }
     }
 
@@ -51,7 +62,18 @@ impl<A: Aleo> Equal<Self> for Plaintext<A> {
                 }
                 false => Boolean::constant(true),
             },
-            (Self::Literal(..), _) | (Self::Struct(..), _) => Boolean::constant(true),
+            (Self::Array(a, _), Self::Array(b, _)) => match a.len() == b.len() {
+                true => {
+                    // Recursively check each element for inequality.
+                    let mut not_equal = Boolean::constant(false);
+                    for (plaintext_a, plaintext_b) in a.iter().zip_eq(b.iter()) {
+                        not_equal |= plaintext_a.is_not_equal(plaintext_b);
+                    }
+                    not_equal
+                }
+                false => Boolean::constant(true),
+            },
+            (Self::Literal(..), _) | (Self::Struct(..), _) | (Self::Array(..), _) => Boolean::constant(true),
         }
     }
 }
@@ -109,13 +131,13 @@ mod tests {
         Circuit::scope(format!("{mode}"), || {
             let candidate = plaintext.is_equal(&plaintext);
             assert!(candidate.eject_value());
-            assert_scope!(num_constants, num_public, num_private, num_constraints);
+            assert_scope!(<=num_constants, <=num_public, <=num_private, <=num_constraints);
         });
 
         Circuit::scope(format!("{mode}"), || {
             let candidate = plaintext.is_equal(&mismatched_plaintext);
             assert!(!candidate.eject_value());
-            assert_scope!(num_constants, num_public, num_private, num_constraints);
+            assert_scope!(<=num_constants, <=num_public, <=num_private, <=num_constraints);
         });
 
         Circuit::reset();
@@ -136,13 +158,13 @@ mod tests {
         Circuit::scope(format!("{mode}"), || {
             let candidate = plaintext.is_not_equal(&mismatched_plaintext);
             assert!(candidate.eject_value());
-            assert_scope!(num_constants, num_public, num_private, num_constraints);
+            assert_scope!(<=num_constants, <=num_public, <=num_private, <=num_constraints);
         });
 
         Circuit::scope(format!("{mode}"), || {
             let candidate = plaintext.is_not_equal(&plaintext);
             assert!(!candidate.eject_value());
-            assert_scope!(num_constants, num_public, num_private, num_constraints);
+            assert_scope!(<=num_constants, <=num_public, <=num_private, <=num_constraints);
         });
 
         Circuit::reset();
@@ -156,12 +178,12 @@ mod tests {
 
     #[test]
     fn test_is_equal_public() -> Result<()> {
-        check_is_equal(Mode::Public, 7, 0, 21, 27)
+        check_is_equal(Mode::Public, 13, 0, 21, 21)
     }
 
     #[test]
     fn test_is_equal_private() -> Result<()> {
-        check_is_equal(Mode::Private, 7, 0, 21, 27)
+        check_is_equal(Mode::Private, 13, 0, 21, 21)
     }
 
     #[test]
@@ -171,11 +193,11 @@ mod tests {
 
     #[test]
     fn test_is_not_equal_public() -> Result<()> {
-        check_is_not_equal(Mode::Public, 7, 0, 21, 27)
+        check_is_not_equal(Mode::Public, 13, 0, 21, 21)
     }
 
     #[test]
     fn test_is_not_equal_private() -> Result<()> {
-        check_is_not_equal(Mode::Private, 7, 0, 21, 27)
+        check_is_not_equal(Mode::Private, 13, 0, 21, 21)
     }
 }

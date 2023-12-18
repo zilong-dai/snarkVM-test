@@ -27,7 +27,7 @@ use snarkvm_utilities::{
     io::{Read, Result as IoResult, Write},
     rand::Uniform,
     serialize::*,
-    FromBytes, ToBits, ToBytes, ToMinimalBits,
+    FromBytes, ToBits, ToBytes,
 };
 
 use core::{
@@ -168,11 +168,7 @@ impl<P: Parameters> AffineCurve for Affine<P> {
     fn from_random_bytes(bytes: &[u8]) -> Option<Self> {
         Self::BaseField::from_random_bytes_with_flags::<EdwardsFlags>(bytes).and_then(|(x, flags)| {
             // If x is valid and is zero, then parse this point as infinity.
-            if x.is_zero() {
-                Some(Self::zero())
-            } else {
-                Self::from_x_coordinate(x, flags.is_positive())
-            }
+			if x.is_zero() { Some(Self::zero()) } else { Self::from_x_coordinate(x, flags.is_positive()) }
         })
     }
 
@@ -298,12 +294,6 @@ impl<P: Parameters> AffineCurve for Affine<P> {
             *inversion_tmp *= &b.x;
             a.t = a.x * a.y;
         }
-    }
-}
-
-impl<P: Parameters> ToMinimalBits for Affine<P> {
-    fn to_minimal_bits(&self) -> Vec<bool> {
-        self.x.to_bits_le()
     }
 }
 

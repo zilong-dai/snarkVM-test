@@ -428,10 +428,12 @@ impl<P: Fp6Parameters> Ord for Fp6<P> {
         let c2_cmp = self.c2.cmp(&other.c2);
         let c1_cmp = self.c1.cmp(&other.c1);
         let c0_cmp = self.c0.cmp(&other.c0);
-        if c2_cmp == Ordering::Equal {
-            if c1_cmp == Ordering::Equal { c0_cmp } else { c1_cmp }
-        } else {
-            c2_cmp
+        match c2_cmp {
+            Ordering::Equal => match c1_cmp {
+                Ordering::Equal => c0_cmp,
+                _ => c1_cmp,
+            },
+            _ => c2_cmp,
         }
     }
 }
@@ -474,20 +476,16 @@ impl<P: Fp6Parameters> From<u8> for Fp6<P> {
 }
 
 impl<P: Fp6Parameters> ToBits for Fp6<P> {
-    fn to_bits_le(&self) -> Vec<bool> {
-        let mut res = vec![];
-        res.extend_from_slice(&self.c0.to_bits_le());
-        res.extend_from_slice(&self.c1.to_bits_le());
-        res.extend_from_slice(&self.c2.to_bits_le());
-        res
+    fn write_bits_le(&self, vec: &mut Vec<bool>) {
+        self.c0.write_bits_le(vec);
+        self.c1.write_bits_le(vec);
+        self.c2.write_bits_le(vec);
     }
 
-    fn to_bits_be(&self) -> Vec<bool> {
-        let mut res = vec![];
-        res.extend_from_slice(&self.c0.to_bits_be());
-        res.extend_from_slice(&self.c1.to_bits_be());
-        res.extend_from_slice(&self.c2.to_bits_be());
-        res
+    fn write_bits_be(&self, vec: &mut Vec<bool>) {
+        self.c0.write_bits_be(vec);
+        self.c1.write_bits_be(vec);
+        self.c2.write_bits_be(vec);
     }
 }
 

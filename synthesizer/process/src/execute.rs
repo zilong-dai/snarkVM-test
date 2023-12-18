@@ -17,9 +17,10 @@ use super::*;
 impl<N: Network> Process<N> {
     /// Executes the given authorization.
     #[inline]
-    pub fn execute<A: circuit::Aleo<Network = N>>(
+    pub fn execute<A: circuit::Aleo<Network = N>, R: CryptoRng + Rng>(
         &self,
         authorization: Authorization<N>,
+        rng: &mut R,
     ) -> Result<(Response<N>, Trace<N>)> {
         let timer = timer!("Process::execute");
 
@@ -37,8 +38,10 @@ impl<N: Network> Process<N> {
         let call_stack = CallStack::execute(authorization, trace.clone())?;
         lap!(timer, "Initialize call stack");
 
+        // Retrieve the stack.
+        let stack = self.get_stack(request.program_id())?;
         // Execute the circuit.
-        let response = self.get_stack(request.program_id())?.execute_function::<A>(call_stack)?;
+        let response = stack.execute_function::<A, R>(call_stack, None, rng)?;
         lap!(timer, "Execute the function");
 
         // Extract the trace.
@@ -48,5 +51,108 @@ impl<N: Network> Process<N> {
 
         finish!(timer);
         Ok((response, trace))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use console::types::Address;
+
+    type CurrentNetwork = console::network::Testnet3;
+    type CurrentAleo = circuit::AleoV0;
+
+    #[test]
+    fn test_execute_fee_private() {
+        let rng = &mut TestRng::default();
+
+        // Initialize the process.
+        let process = Process::<CurrentNetwork>::load().unwrap();
+
+        // Sample a private key.
+        let private_key = PrivateKey::<CurrentNetwork>::new(rng).unwrap();
+        let owner = Address::try_from(private_key).unwrap();
+
+        // Sample a base fee in microcredits.
+        let base_fee_in_microcredits = rng.gen_range(1_000_000..u64::MAX / 2);
+        // Sample a priority fee in microcredits.
+        let priority_fee_in_microcredits = rng.gen_range(0..u64::MAX / 2);
+        // Sample a deployment or execution ID.
+        let deployment_or_execution_id = Field::rand(rng);
+
+        // Sample a credits record.
+        let fee_in_microcredits = base_fee_in_microcredits.saturating_add(priority_fee_in_microcredits);
+        let credits = Record::<CurrentNetwork, Plaintext<_>>::from_str(&format!(
+            "{{ owner: {owner}.private, microcredits: {fee_in_microcredits}u64.private, _nonce: 0group.public }}"
+        ))
+        .unwrap();
+
+        // Initialize the authorization.
+        let authorization = process
+            .authorize_fee_private::<CurrentAleo, _>(
+                &private_key,
+                credits,
+                base_fee_in_microcredits,
+                priority_fee_in_microcredits,
+                deployment_or_execution_id,
+                rng,
+            )
+            .unwrap();
+        assert!(authorization.is_fee_private(), "Authorization must be for a call to 'credits.aleo/fee_private'");
+
+        // Execute the authorization.
+        let (response, trace) = process.execute::<CurrentAleo, _>(authorization, rng).unwrap();
+        // Ensure the response has 1 output.
+        assert_eq!(response.outputs().len(), 1, "Execution of 'credits.aleo/fee_private' must contain 1 output");
+        // Ensure the response has 1 output ID.
+        assert_eq!(response.output_ids().len(), 1, "Execution of 'credits.aleo/fee_private' must contain 1 output ID");
+        // Ensure the trace contains 1 transition.
+        assert_eq!(trace.transitions().len(), 1, "Execution of 'credits.aleo/fee_private' must contain 1 transition");
+
+        // Retrieve the transition.
+        let transition = trace.transitions()[0].clone();
+        assert!(transition.is_fee_private(), "Transition must be for 'credits.aleo/fee_private'");
+    }
+
+    #[test]
+    fn test_execute_fee_public() {
+        let rng = &mut TestRng::default();
+
+        // Initialize the process.
+        let process = Process::<CurrentNetwork>::load().unwrap();
+
+        // Sample a private key.
+        let private_key = PrivateKey::new(rng).unwrap();
+        // Sample a base fee in microcredits.
+        let base_fee_in_microcredits = rng.gen_range(1_000_000..u64::MAX / 2);
+        // Sample a priority fee in microcredits.
+        let priority_fee_in_microcredits = rng.gen_range(0..u64::MAX / 2);
+        // Sample a deployment or execution ID.
+        let deployment_or_execution_id = Field::rand(rng);
+
+        // Compute the authorization.
+        let authorization = process
+            .authorize_fee_public::<CurrentAleo, _>(
+                &private_key,
+                base_fee_in_microcredits,
+                priority_fee_in_microcredits,
+                deployment_or_execution_id,
+                rng,
+            )
+            .unwrap();
+        assert!(authorization.is_fee_public(), "Authorization must be for a call to 'credits.aleo/fee_public'");
+
+        // Execute the authorization.
+        let (response, trace) = process.execute::<CurrentAleo, _>(authorization, rng).unwrap();
+        // Ensure the response has 1 outputs.
+        assert_eq!(response.outputs().len(), 1, "Execution of 'credits.aleo/fee_public' must contain 1 output");
+        // Ensure the response has 1 output IDs.
+        assert_eq!(response.output_ids().len(), 1, "Execution of 'credits.aleo/fee_public' must contain 1 output ID");
+        // Ensure the trace contains 1 transition.
+        assert_eq!(trace.transitions().len(), 1, "Execution of 'credits.aleo/fee_public' must contain 1 transition");
+
+        // Retrieve the transition.
+        let transition = trace.transitions()[0].clone();
+        assert!(transition.is_fee_public(), "Transition must be for 'credits.aleo/fee_public'");
     }
 }

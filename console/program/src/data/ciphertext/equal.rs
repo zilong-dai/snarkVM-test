@@ -28,21 +28,21 @@ impl<N: Network> Equal<Self> for Ciphertext<N> {
 
     /// Returns `true` if `self` and `other` are equal.
     fn is_equal(&self, other: &Self) -> Self::Output {
-        // Check each field element for equality.
-        let mut equal = Boolean::new(true);
-        for (a, b) in self.0.iter().zip_eq(other.0.iter()) {
-            equal &= a.is_equal(b);
+        // Ensure that the ciphertexts have the same number of field elements.
+        if self.0.len() != other.0.len() {
+            return Boolean::new(false);
         }
-        equal
+
+        // Check each field element for equality.
+        if self.0.iter().zip_eq(other.0.iter()).all(|(a, b)| *a.is_equal(b)) {
+            Boolean::new(true)
+        } else {
+            Boolean::new(false)
+        }
     }
 
     /// Returns `true` if `self` and `other` are *not* equal.
     fn is_not_equal(&self, other: &Self) -> Self::Output {
-        // Recursively check each member for inequality.
-        let mut not_equal = Boolean::new(false);
-        for (a, b) in self.0.iter().zip_eq(other.0.iter()) {
-            not_equal |= a.is_not_equal(b);
-        }
-        not_equal
+        !self.is_equal(other)
     }
 }

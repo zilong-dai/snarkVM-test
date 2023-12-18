@@ -21,7 +21,7 @@ impl<N: Network> FromBytes for Transaction<N> {
         // Read the version.
         let version = u8::read_le(&mut reader)?;
         // Ensure the version is valid.
-        if version != 0 {
+        if version != 1 {
             return Err(error("Invalid transaction version"));
         }
 
@@ -92,7 +92,7 @@ impl<N: Network> ToBytes for Transaction<N> {
     #[inline]
     fn write_le<W: Write>(&self, mut writer: W) -> IoResult<()> {
         // Write the version.
-        0u8.write_le(&mut writer)?;
+        1u8.write_le(&mut writer)?;
 
         // Write the transaction.
         match self {
@@ -139,24 +139,22 @@ impl<N: Network> ToBytes for Transaction<N> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use console::network::Testnet3;
-
-    type CurrentNetwork = Testnet3;
 
     #[test]
     fn test_bytes() -> Result<()> {
         let rng = &mut TestRng::default();
 
         for expected in [
-            crate::transaction::test_helpers::sample_deployment_transaction(rng),
-            crate::transaction::test_helpers::sample_execution_transaction_with_fee(rng),
+            crate::transaction::test_helpers::sample_deployment_transaction(true, rng),
+            crate::transaction::test_helpers::sample_deployment_transaction(false, rng),
+            crate::transaction::test_helpers::sample_execution_transaction_with_fee(true, rng),
+            crate::transaction::test_helpers::sample_execution_transaction_with_fee(false, rng),
         ]
         .into_iter()
         {
             // Check the byte representation.
             let expected_bytes = expected.to_bytes_le()?;
             assert_eq!(expected, Transaction::read_le(&expected_bytes[..])?);
-            assert!(Transaction::<CurrentNetwork>::read_le(&expected_bytes[1..]).is_err());
         }
         Ok(())
     }

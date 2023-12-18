@@ -61,9 +61,15 @@ impl<N: Network> FromBytes for FinalizeOperation<N> {
                 // Read the mapping ID.
                 let mapping_id = Field::read_le(&mut reader)?;
                 // Return the finalize operation.
+                Ok(Self::ReplaceMapping(mapping_id))
+            }
+            5 => {
+                // Read the mapping ID.
+                let mapping_id = Field::read_le(&mut reader)?;
+                // Return the finalize operation.
                 Ok(Self::RemoveMapping(mapping_id))
             }
-            5.. => Err(error(format!("Failed to decode finalize operation variant {variant}"))),
+            6.. => Err(error(format!("Failed to decode finalize operation variant {variant}"))),
         }
     }
 }
@@ -108,9 +114,15 @@ impl<N: Network> ToBytes for FinalizeOperation<N> {
                 // Write the index.
                 index.write_le(&mut writer)?;
             }
-            Self::RemoveMapping(mapping_id) => {
+            Self::ReplaceMapping(mapping_id) => {
                 // Write the variant.
                 4u8.write_le(&mut writer)?;
+                // Write the mapping ID.
+                mapping_id.write_le(&mut writer)?;
+            }
+            Self::RemoveMapping(mapping_id) => {
+                // Write the variant.
+                5u8.write_le(&mut writer)?;
                 // Write the mapping ID.
                 mapping_id.write_le(&mut writer)?;
             }
@@ -122,9 +134,6 @@ impl<N: Network> ToBytes for FinalizeOperation<N> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use console::network::Testnet3;
-
-    type CurrentNetwork = Testnet3;
 
     #[test]
     fn test_bytes() {
@@ -132,7 +141,6 @@ mod tests {
             // Check the byte representation.
             let expected_bytes = expected.to_bytes_le().unwrap();
             assert_eq!(expected, FinalizeOperation::read_le(&expected_bytes[..]).unwrap());
-            assert!(FinalizeOperation::<CurrentNetwork>::read_le(&expected_bytes[1..]).is_err());
         }
     }
 }

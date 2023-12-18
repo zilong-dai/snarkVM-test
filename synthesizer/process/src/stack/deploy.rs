@@ -14,6 +14,8 @@
 
 use super::*;
 
+use rand::{rngs::StdRng, SeedableRng};
+
 impl<N: Network> Stack<N> {
     /// Deploys the given program ID, if it does not exist.
     #[inline]
@@ -111,32 +113,28 @@ impl<N: Network> Stack<N> {
             let assignments = Assignments::<N>::default();
             // Initialize the call stack.
             let call_stack = CallStack::CheckDeployment(vec![request], burner_private_key, assignments.clone());
-
             // Append the function name, callstack, and assignments.
             call_stacks.push((function.name(), call_stack, assignments));
         }
 
         // Verify the certificates.
-        cfg_iter!(call_stacks).zip_eq(deployment.verifying_keys()).try_for_each(
-            |((function_name, call_stack, assignments), (_, (verifying_key, certificate)))| {
+        let rngs = (0..call_stacks.len()).map(|_| StdRng::from_seed(rng.gen())).collect::<Vec<_>>();
+        cfg_iter!(call_stacks).zip_eq(deployment.verifying_keys()).zip_eq(rngs).try_for_each(
+            |(((function_name, call_stack, assignments), (_, (verifying_key, certificate))), mut rng)| {
                 // Synthesize the circuit.
-                let _response = self.execute_function::<A>(call_stack.clone()).unwrap();
-                lap!(timer, "Synthesize the circuit");
-
+                if let Err(err) = self.execute_function::<A, _>(call_stack.clone(), None, &mut rng) {
+                    bail!("Failed to synthesize the circuit for '{function_name}': {err}")
+                }
                 // Check the certificate.
                 match assignments.read().last() {
-                    None => {
-                        bail!("The assignment for function '{}' is missing in '{program_id}'", function_name)
-                    }
-                    Some(assignment) => {
+                    None => bail!("The assignment for function '{function_name}' is missing in '{program_id}'"),
+                    Some((assignment, _metrics)) => {
                         // Ensure the certificate is valid.
                         if !certificate.verify(&function_name.to_string(), assignment, verifying_key) {
-                            bail!("The certificate for function '{}' is invalid in '{program_id}'", function_name)
+                            bail!("The certificate for function '{function_name}' is invalid in '{program_id}'")
                         }
-                        lap!(timer, "Ensure the certificate is valid");
                     }
                 };
-
                 Ok(())
             },
         )?;

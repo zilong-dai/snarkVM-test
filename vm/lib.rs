@@ -37,6 +37,8 @@ pub use snarkvm_curves as curves;
 pub use snarkvm_fields as fields;
 #[cfg(feature = "ledger")]
 pub use snarkvm_ledger as ledger;
+#[cfg(feature = "metrics")]
+pub use snarkvm_metrics as metrics;
 #[cfg(feature = "parameters")]
 pub use snarkvm_parameters as parameters;
 #[cfg(feature = "synthesizer")]
@@ -46,41 +48,11 @@ pub use snarkvm_utilities as utilities;
 #[cfg(feature = "wasm")]
 pub use snarkvm_wasm as wasm;
 
-pub mod errors {
-    #[cfg(feature = "algorithms")]
-    pub use crate::algorithms::errors::*;
-    #[cfg(feature = "curves")]
-    pub use crate::curves::errors::*;
-    #[cfg(feature = "fields")]
-    pub use crate::fields::errors::*;
-    #[cfg(feature = "parameters")]
-    pub use crate::parameters::errors::*;
-    #[cfg(feature = "r1cs")]
-    pub use crate::r1cs::errors::*;
-}
-
-pub mod traits {
-    #[cfg(feature = "algorithms")]
-    pub use crate::algorithms::traits::*;
-    #[cfg(feature = "curves")]
-    pub use crate::curves::traits::*;
-    #[cfg(feature = "fields")]
-    pub use crate::fields::traits::*;
-}
-
 pub mod prelude {
-    pub use crate::{errors::*, traits::*};
-
-    #[cfg(feature = "algorithms")]
-    pub use crate::algorithms::prelude::*;
     #[cfg(feature = "console")]
-    pub use crate::console::{account::*, network::*, prelude::*, program::*};
+    pub use crate::console::{account::*, network::*, program::*};
     #[cfg(feature = "ledger")]
     pub use crate::ledger::*;
-    #[cfg(feature = "parameters")]
-    pub use crate::parameters::prelude::*;
     #[cfg(feature = "synthesizer")]
     pub use crate::synthesizer::prelude::*;
-    #[cfg(feature = "utilities")]
-    pub use crate::utilities::*;
 }

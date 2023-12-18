@@ -32,18 +32,16 @@ use console::{
 };
 use snarkvm_algorithms::{
     fft::{DensePolynomial, EvaluationDomain},
-    msm::VariableBase,
-    polycommit::kzg10::{KZGCommitment, UniversalParams as SRS, KZG10},
+    polycommit::kzg10::{UniversalParams as SRS, KZG10, KZGCommitment}, msm::VariableBase,
 };
 use snarkvm_curves::{PairingEngine, ProjectiveCurve, templates::twisted_edwards_extended::{Affine, Projective}, edwards_bls12::{EdwardsParameters384}, bls12_377::{G1Affine, Bls12_377G1Parameters, Fr}};
 use snarkvm_fields::{PrimeField, Zero, One, Fp256};
 use snarkvm_synthesizer_snark::UniversalSRS;
 use snarkvm_utilities::{cfg_zip_fold, BigInteger, BigInteger256};
 
+use aleo_std::prelude::*;
 use std::{sync::Arc, time::Instant, ops::AddAssign};
 
-#[cfg(feature = "serial")]
-use itertools::Itertools;
 #[cfg(not(feature = "serial"))]
 use rayon::prelude::*;
 
@@ -209,7 +207,7 @@ impl CoinbasePuzzle<Testnet3>{
 
 
         for i in 0..scalars.len(){
-            println!("{:x}", scalars[i].clone().to_biguint());
+            // println!("{:x}", scalars[i].clone().to_biguint());
             // TODO 
             use snarkvm_curves::AffineCurve;
             let mut b128 = bases[i].clone().to_projective();
@@ -219,10 +217,10 @@ impl CoinbasePuzzle<Testnet3>{
             let mut tempa1 = Projective::<EdwardsParameters384>::zero();
             let mut tempa2 = Projective::<EdwardsParameters384>::zero();
             let s = scalars[i].clone().to_bytes_le().unwrap();
-            for su8 in s.clone(){
-                print!("{:02x} ", su8);
-            }
-            println!();
+            // for su8 in s.clone(){
+            //     print!("{:02x} ", su8);
+            // }
+            // println!();
 
             for j in 0..16{
                 tempa1 = tempa1 * Fr::from_bigint(BigInteger256::from(1 << 8 as u64)).unwrap();
@@ -363,7 +361,7 @@ impl CoinbasePuzzle<Testnet3>{
             let proof_target = partial_solution.to_target()?;
             println!("proof_target {:08x}", proof_target);
             ensure!(
-                proof_target == minimum_target,
+                proof_target >= minimum_target,
                 "Prover solution was below the necessary proof target ({proof_target} < {minimum_target})"
             );
         }
@@ -440,20 +438,18 @@ impl<N: Network> CoinbasePuzzle<N> {
         };
 
         let polynomial = Self::prover_polynomial(epoch_challenge, address, nonce)?;
-        // let polynomial = epoch_challenge.epoch_polynomial().clone();
 
         let product_evaluations = {
             let polynomial_evaluations = pk.product_domain.in_order_fft_with_pc(&polynomial, &pk.fft_precomputation);
-            let product_evaluations = pk.product_domain.mul_polynomials_in_evaluation_domain(
+            pk.product_domain.mul_polynomials_in_evaluation_domain(
                 polynomial_evaluations,
                 &epoch_challenge.epoch_polynomial_evaluations().evaluations,
-            );
-            product_evaluations
+            )?
         };
-        // println!("product evaluations {:?}", product_evaluations);
         let (commitment, _rand) = KZG10::commit_lagrange(&pk.lagrange_basis(), &product_evaluations, None, None)?;
-        let partial_solution = PartialSolution::new(address, nonce, commitment);
 
+        let partial_solution = PartialSolution::new(address, nonce, commitment);
+        
         // Check that the minimum target is met.
         if let Some(minimum_target) = minimum_proof_target {
             let proof_target = partial_solution.to_target()?;
@@ -580,190 +576,41 @@ impl<N: Network> CoinbasePuzzle<N> {
     ///
     /// # Note
     /// This method does *not* check that the prover solutions are valid.
-    pub fn accumulate_unchecked(
+    pub fn check_solutions(
         &self,
+        solutions: &CoinbaseSolution<N>,
         epoch_challenge: &EpochChallenge<N>,
-        prover_solutions: &[ProverSolution<N>],
-    ) -> Result<CoinbaseSolution<N>> {
-        // Ensure there exists prover solutions.
-        if prover_solutions.is_empty() {
-            bail!("Cannot accumulate an empty list of prover solutions.");
-        }
-
-        // Ensure the number of prover solutions does not exceed `MAX_PROVER_SOLUTIONS`.
-        if prover_solutions.len() > N::MAX_PROVER_SOLUTIONS {
-            bail!(
-                "Cannot accumulate beyond {} prover solutions, found {}.",
-                N::MAX_PROVER_SOLUTIONS,
-                prover_solutions.len()
-            );
-        }
-
-        // Retrieve the coinbase proving key.
-        let pk = match self {
-            Self::Prover(coinbase_proving_key) => coinbase_proving_key,
-            Self::Verifier(_) => bail!("Cannot accumulate the coinbase puzzle with a verifier"),
-        };
-        ensure!(!has_duplicates(prover_solutions), "Cannot accumulate duplicate prover solutions");
-
-        let (prover_polynomials, partial_solutions): (Vec<_>, Vec<_>) = cfg_iter!(prover_solutions)
-            .filter_map(|solution| {
-                if solution.proof().is_hiding() {
-                    return None;
-                }
-                let polynomial = solution.to_prover_polynomial(epoch_challenge).ok()?;
-                Some((polynomial, PartialSolution::new(solution.address(), solution.nonce(), solution.commitment())))
-            })
-            .unzip();
-
-        // Compute the challenge points.
-        let mut challenges = hash_commitments(partial_solutions.iter().map(|solution| *solution.commitment()))?;
-        ensure!(challenges.len() == partial_solutions.len() + 1, "Invalid number of challenge points");
-
-        // Pop the last challenge as the accumulator challenge point.
-        let accumulator_point = match challenges.pop() {
-            Some(point) => point,
-            None => bail!("Missing the accumulator challenge point"),
-        };
-
-        // Accumulate the prover polynomial.
-        let zero = DensePolynomial::zero;
-        let accumulated_prover_polynomial = cfg_zip_fold!(
-            cfg_into_iter!(prover_polynomials),
-            challenges,
-            zero,
-            |mut accumulator, (mut prover_polynomial, challenge)| {
-                prover_polynomial *= challenge;
-                accumulator += &prover_polynomial;
-                accumulator
-            },
-            DensePolynomial<_>
-        );
-        let product_eval_at_challenge_point = accumulated_prover_polynomial.evaluate(accumulator_point)
-            * epoch_challenge.epoch_polynomial().evaluate(accumulator_point);
-
-        // Compute the accumulator polynomial.
-        let product_evals = {
-            let accumulated_polynomial_evaluations =
-                pk.product_domain.in_order_fft_with_pc(&accumulated_prover_polynomial.coeffs, &pk.fft_precomputation);
-            pk.product_domain.mul_polynomials_in_evaluation_domain(
-                accumulated_polynomial_evaluations,
-                &epoch_challenge.epoch_polynomial_evaluations().evaluations,
-            )
-        };
-
-        // Compute the coinbase proof.
-        let proof = KZG10::open_lagrange(
-            &pk.lagrange_basis(),
-            pk.product_domain_elements(),
-            &product_evals,
-            accumulator_point,
-            product_eval_at_challenge_point,
-        )?;
-
-        // Ensure the coinbase proof is non-hiding.
-        if proof.is_hiding() {
-            bail!("The coinbase proof must be non-hiding");
-        }
-
-        // Return the accumulated proof.
-        Ok(CoinbaseSolution::new(partial_solutions, proof))
-    }
-
-    /// Returns `true` if the coinbase solution is valid.
-    pub fn verify(
-        &self,
-        coinbase_solution: &CoinbaseSolution<N>,
-        epoch_challenge: &EpochChallenge<N>,
-        coinbase_target: u64,
         proof_target: u64,
-    ) -> Result<bool> {
-        // Ensure the coinbase solution is not empty.
-        if coinbase_solution.is_empty() {
-            bail!("The coinbase solution does not contain any partial solutions");
-        }
+    ) -> Result<()> {
+        let timer = timer!("CoinbasePuzzle::verify");
+
+        // Ensure the solutions are not empty.
+        ensure!(!solutions.is_empty(), "There are no solutions to verify for the coinbase puzzle");
 
         // Ensure the number of partial solutions does not exceed `MAX_PROVER_SOLUTIONS`.
-        if coinbase_solution.len() > N::MAX_PROVER_SOLUTIONS {
+        if solutions.len() > N::MAX_SOLUTIONS {
             bail!(
-                "The coinbase solution exceeds the allowed number of partial solutions. ({} > {})",
-                coinbase_solution.len(),
-                N::MAX_PROVER_SOLUTIONS
+                "The solutions exceed the allowed number of partial solutions. ({} > {})",
+                solutions.len(),
+                N::MAX_SOLUTIONS
             );
-        }
-
-        // Ensure the coinbase proof is non-hiding.
-        if coinbase_solution.proof().is_hiding() {
-            bail!("The coinbase proof must be non-hiding");
-        }
-
-        // Ensure the coinbase proof meets the required coinbase target.
-        if coinbase_solution.to_cumulative_proof_target()? < coinbase_target as u128 {
-            bail!("The coinbase proof does not meet the coinbase target");
         }
 
         // Ensure the puzzle commitments are unique.
-        if has_duplicates(coinbase_solution.puzzle_commitments()) {
-            bail!("The coinbase solution contains duplicate puzzle commitments");
+        if has_duplicates(solutions.puzzle_commitments()) {
+            bail!("The solutions contain duplicate puzzle commitments");
         }
+        lap!(timer, "Perform initial checks");
 
-        // Compute the prover polynomials.
-        let prover_polynomials = cfg_iter!(coinbase_solution.partial_solutions())
-            // Ensure that each of the prover solutions meets the required proof target.
-            .map(|solution| match solution.to_target()? >= proof_target {
-                // Compute the prover polynomial.
-                true => solution.to_prover_polynomial(epoch_challenge),
-                false => bail!("Prover puzzle does not meet the proof target requirements."),
-            })
-            .collect::<Result<Vec<_>>>()?;
+        // Verify each prover solution.
+        if !cfg_iter!(solutions).all(|(_, solution)| {
+            solution.verify(self.coinbase_verifying_key(), epoch_challenge, proof_target).unwrap_or(false)
+        }) {
+            bail!("The solutions contain an invalid prover solution");
+        }
+        finish!(timer, "Verify each solution");
 
-        // Compute the challenge points.
-        let mut challenge_points =
-            hash_commitments(coinbase_solution.partial_solutions().iter().map(|solution| *solution.commitment()))?;
-        ensure!(
-            challenge_points.len() == coinbase_solution.partial_solutions().len() + 1,
-            "Invalid number of challenge points"
-        );
-
-        // Pop the last challenge point as the accumulator challenge point.
-        let accumulator_point = match challenge_points.pop() {
-            Some(point) => point,
-            None => bail!("Missing the accumulator challenge point"),
-        };
-
-        // Compute the accumulator evaluation.
-        let mut accumulator_evaluation = cfg_zip_fold!(
-            cfg_iter!(prover_polynomials),
-            &challenge_points,
-            <N::PairingCurve as PairingEngine>::Fr::zero,
-            |accumulator, (prover_polynomial, challenge_point)| {
-                accumulator + (prover_polynomial.evaluate(accumulator_point) * challenge_point)
-            },
-            _
-        );
-        accumulator_evaluation *= &epoch_challenge.epoch_polynomial().evaluate(accumulator_point);
-
-        // Compute the accumulator commitment.
-        let commitments: Vec<_> =
-            cfg_iter!(coinbase_solution.partial_solutions()).map(|solution| solution.commitment().0).collect();
-        let fs_challenges = challenge_points.into_iter().map(|f| f.to_bigint()).collect::<Vec<_>>();
-        let accumulator_commitment =
-            KZGCommitment::<N::PairingCurve>(VariableBase::msm(&commitments, &fs_challenges).into());
-
-        // Retrieve the coinbase verifying key.
-        let coinbase_verifying_key = match self {
-            Self::Prover(coinbase_proving_key) => &coinbase_proving_key.verifying_key,
-            Self::Verifier(coinbase_verifying_key) => coinbase_verifying_key,
-        };
-
-        // Return the verification result.
-        Ok(KZG10::check(
-            coinbase_verifying_key,
-            &accumulator_commitment,
-            accumulator_point,
-            accumulator_evaluation,
-            coinbase_solution.proof(),
-        )?)
+        Ok(())
     }
 
     /// Returns the coinbase proving key.
@@ -808,10 +655,11 @@ impl<N: Network> CoinbasePuzzle<N> {
     ) -> Result<DensePolynomial<<N::PairingCurve as PairingEngine>::Fr>> {
         let input = {
             let mut bytes = [0u8; 76];
-            bytes[..4].copy_from_slice(&epoch_challenge.epoch_number().to_bytes_le()?);
-            bytes[4..36].copy_from_slice(&epoch_challenge.epoch_block_hash().to_bytes_le()?);
-            bytes[36..68].copy_from_slice(&address.to_bytes_le()?);
-            bytes[68..].copy_from_slice(&nonce.to_le_bytes());
+            epoch_challenge.epoch_number().write_le(&mut bytes[..4])?;
+            epoch_challenge.epoch_block_hash().write_le(&mut bytes[4..36])?;
+            address.write_le(&mut bytes[36..68])?;
+            nonce.write_le(&mut bytes[68..])?;
+
             bytes
         };
 

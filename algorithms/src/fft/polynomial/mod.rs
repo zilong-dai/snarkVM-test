@@ -17,10 +17,10 @@
 use crate::fft::{EvaluationDomain, Evaluations};
 use snarkvm_fields::{Field, PrimeField};
 use snarkvm_utilities::{cfg_iter_mut, serialize::*, SerializationError};
-
-use std::{borrow::Cow, convert::TryInto};
-
 use Polynomial::*;
+
+use anyhow::{ensure, Result};
+use std::{borrow::Cow, convert::TryInto};
 
 #[cfg(not(feature = "serial"))]
 use rayon::prelude::*;
@@ -44,8 +44,7 @@ pub enum Polynomial<'a, F: Field> {
 }
 
 impl<'a, F: Field> CanonicalSerialize for Polynomial<'a, F> {
-    #[allow(unused_mut, unused_variables)]
-    fn serialize_with_mode<W: Write>(&self, mut writer: W, compress: Compress) -> Result<(), SerializationError> {
+    fn serialize_with_mode<W: Write>(&self, writer: W, compress: Compress) -> Result<(), SerializationError> {
         match self {
             Sparse(p) => {
                 let p: DensePolynomial<F> = p.clone().into_owned().into();
@@ -55,7 +54,6 @@ impl<'a, F: Field> CanonicalSerialize for Polynomial<'a, F> {
         }
     }
 
-    #[allow(unused_mut, unused_variables)]
     fn serialized_size(&self, mode: Compress) -> usize {
         match self {
             Sparse(p) => {
@@ -69,12 +67,20 @@ impl<'a, F: Field> CanonicalSerialize for Polynomial<'a, F> {
 
 impl<'a, F: Field> Valid for Polynomial<'a, F> {
     fn check(&self) -> Result<(), SerializationError> {
-        Ok(())
+        // Check that the polynomial contains a trailing zero coefficient.
+        let has_trailing_zero = match self {
+            Sparse(p) => p.coeffs().last().map(|(_, c)| c.is_zero()),
+            Dense(p) => p.coeffs.last().map(|c| c.is_zero()),
+        };
+        // Fail if the trailing coefficient is zero.
+        match has_trailing_zero {
+            Some(true) => Err(SerializationError::InvalidData),
+            Some(false) | None => Ok(()),
+        }
     }
 }
 
 impl<'a, F: Field> CanonicalDeserialize for Polynomial<'a, F> {
-    #[allow(unused_mut, unused_variables)]
     fn deserialize_with_mode<R: Read>(
         reader: R,
         compress: Compress,
@@ -212,13 +218,13 @@ impl<'a, F: Field> Polynomial<'a, F> {
     }
 
     /// Divide self by another (sparse or dense) polynomial, and returns the quotient and remainder.
-    pub fn divide_with_q_and_r(&self, divisor: &Self) -> Option<(DensePolynomial<F>, DensePolynomial<F>)> {
+    pub fn divide_with_q_and_r(&self, divisor: &Self) -> Result<(DensePolynomial<F>, DensePolynomial<F>)> {
+        ensure!(!divisor.is_zero(), "Dividing by zero polynomial is undefined");
+
         if self.is_zero() {
-            Some((DensePolynomial::zero(), DensePolynomial::zero()))
-        } else if divisor.is_zero() {
-            panic!("Dividing by zero polynomial")
+            Ok((DensePolynomial::zero(), DensePolynomial::zero()))
         } else if self.degree() < divisor.degree() {
-            Some((DensePolynomial::zero(), self.clone().into()))
+            Ok((DensePolynomial::zero(), self.clone().into()))
         } else {
             // Now we know that self.degree() >= divisor.degree();
             let mut quotient = vec![F::zero(); self.degree() - divisor.degree() + 1];
@@ -244,7 +250,7 @@ impl<'a, F: Field> Polynomial<'a, F> {
                     remainder.coeffs.pop();
                 }
             }
-            Some((DensePolynomial::from_coefficients_vec(quotient), remainder))
+            Ok((DensePolynomial::from_coefficients_vec(quotient), remainder))
         }
     }
 }

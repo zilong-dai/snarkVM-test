@@ -12,8 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub use cast::Cast;
+pub use cast_lossy::CastLossy;
+
 mod bytes;
-mod downcast;
+mod cast;
+mod cast_lossy;
 mod equal;
 mod from_bits;
 mod parse;
@@ -24,7 +28,8 @@ mod to_bits;
 mod to_type;
 mod variant;
 
-use crate::LiteralType;
+use crate::{LiteralType, ProgramID};
+use snarkvm_console_account::{ComputeKey, PrivateKey, Signature};
 use snarkvm_console_network::Network;
 use snarkvm_console_types::{prelude::*, Boolean};
 
@@ -61,6 +66,8 @@ pub enum Literal<N: Network> {
     U128(U128<N>),
     /// The scalar type.
     Scalar(Scalar<N>),
+    /// The signature type.
+    Signature(Box<Signature<N>>),
     /// The string type.
     String(StringType<N>),
 }

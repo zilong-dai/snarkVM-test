@@ -24,11 +24,11 @@ use crate::{
     msm::VariableBase,
     polycommit::PCError,
 };
-use anyhow::anyhow;
 use snarkvm_curves::traits::{AffineCurve, PairingCurve, PairingEngine, ProjectiveCurve};
 use snarkvm_fields::{One, PrimeField, Zero};
 use snarkvm_utilities::{cfg_iter, cfg_iter_mut, rand::Uniform, BitIteratorBE};
 
+use anyhow::{anyhow, ensure, Result};
 use core::{marker::PhantomData, ops::Mul};
 use itertools::Itertools;
 use rand_core::RngCore;
@@ -44,7 +44,7 @@ use super::sonic_pc::LabeledPolynomialWithBasis;
 #[derive(Debug, PartialEq, Eq)]
 pub enum KZGDegreeBounds {
     All,
-    Marlin,
+    Varuna,
     List(Vec<usize>),
     None,
 }
@@ -53,8 +53,8 @@ impl KZGDegreeBounds {
     pub fn get_list<F: PrimeField>(&self, max_degree: usize) -> Vec<usize> {
         match self {
             KZGDegreeBounds::All => (0..max_degree).collect(),
-            KZGDegreeBounds::Marlin => {
-                // In Marlin, the degree bounds are all of the forms `domain_size - 2`.
+            KZGDegreeBounds::Varuna => {
+                // In Varuna, the degree bounds are all of the forms `domain_size - 2`.
                 // Consider that we are using radix-2 FFT,
                 // there are only a few possible domain sizes and therefore degree bounds.
                 //
@@ -235,7 +235,6 @@ impl<E: PairingEngine> KZG10<E> {
     /// The witness polynomial w(x) the quotient of the division (p(x) - p(z)) / (x - z)
     /// Observe that this quotient does not change with z because
     /// p(z) is the remainder term. We can therefore omit p(z) when computing the quotient.
-    #[allow(clippy::type_complexity)]
     pub fn compute_witness_polynomial(
         polynomial: &DensePolynomial<E::Fr>,
         point: E::Fr,
@@ -303,7 +302,7 @@ impl<E: PairingEngine> KZG10<E> {
         evaluations: &[E::Fr],
         point: E::Fr,
         evaluation_at_point: E::Fr,
-    ) -> Result<KZGProof<E>, PCError> {
+    ) -> Result<KZGProof<E>> {
         Self::check_degree_is_too_large(evaluations.len() - 1, lagrange_basis.size())?;
         // Ensure that the point is not in the domain
         if lagrange_basis.domain.evaluate_vanishing_polynomial(point).is_zero() {
@@ -317,6 +316,7 @@ impl<E: PairingEngine> KZG10<E> {
 
         let mut divisor_evals = cfg_iter!(domain_elements).map(|&e| e - point).collect::<Vec<_>>();
         snarkvm_fields::batch_inversion(&mut divisor_evals);
+        ensure!(divisor_evals.len() == evaluations.len());
         cfg_iter_mut!(divisor_evals).zip_eq(evaluations).for_each(|(divisor_eval, &eval)| {
             *divisor_eval *= eval - evaluation_at_point;
         });
@@ -378,7 +378,7 @@ impl<E: PairingEngine> KZG10<E> {
         values: &[E::Fr],
         proofs: &[KZGProof<E>],
         rng: &mut R,
-    ) -> Result<bool, PCError> {
+    ) -> Result<bool> {
         let check_time = start_timer!(|| format!("Checking {} evaluation proofs", commitments.len()));
         let g = vk.g.to_projective();
         let gamma_g = vk.gamma_g.to_projective();
@@ -392,6 +392,9 @@ impl<E: PairingEngine> KZG10<E> {
         // their coefficients and perform a final multiplication at the end.
         let mut g_multiplier = E::Fr::zero();
         let mut gamma_g_multiplier = E::Fr::zero();
+        ensure!(commitments.len() == points.len());
+        ensure!(commitments.len() == values.len());
+        ensure!(commitments.len() == proofs.len());
         for (((c, z), v), proof) in commitments.iter().zip_eq(points).zip_eq(values).zip_eq(proofs) {
             let w = proof.w;
             let mut temp = w.mul(*z);
@@ -478,11 +481,12 @@ fn skip_leading_zeros_and_convert_to_bigints<F: PrimeField>(p: &DensePolynomial<
     if p.coeffs.is_empty() {
         (0, vec![])
     } else {
-        let mut num_leading_zeros = 0;
-        while p.coeffs[num_leading_zeros].is_zero() && num_leading_zeros < p.coeffs.len() {
-            num_leading_zeros += 1;
-        }
-        let coeffs = convert_to_bigints(&p.coeffs[num_leading_zeros..]);
+        let num_leading_zeros = p.coeffs.iter().take_while(|c| c.is_zero()).count();
+        let coeffs = if num_leading_zeros == p.coeffs.len() {
+            vec![]
+        } else {
+            convert_to_bigints(&p.coeffs[num_leading_zeros..])
+        };
         (num_leading_zeros, coeffs)
     }
 }
