@@ -341,3 +341,58 @@ fn evaluate_over_domain() {
         }
     }
 }
+
+
+#[test]
+fn test_fft_data() {
+    use std::fs::File;
+    use snarkvm_fields::PrimeField;
+    use snarkvm_utilities::BigInteger;
+    use std::io::Write;
+    // Tests that the ffts output the correct result.
+    // This assumes a correct polynomial evaluation at point procedure.
+    // It tests consistency of FFT/IFFT, and coset_fft/coset_ifft,
+    // along with testing that each individual evaluation is correct.
+
+    // Runs in time O(degree^2)
+    let log_degree = 13;
+    let degree = 1 << log_degree;
+    let rand_poly = DensePolynomial::<Fr>::rand(degree - 1, &mut TestRng::default());
+
+
+    for i in 0..1{
+        let omega = File::create(format!("omega_{}.txt", i)).unwrap();
+        let roots_file = File::create(format!("roots_of_unity_{}.txt", i)).unwrap();
+        // let omega_te = File::create(format!("omega_te_{}.txt", i)).unwrap();
+        let fft_input = File::create(format!("fft_input_{}.txt", i)).unwrap();
+        // let fft_input_te = File::create(format!("fft_input_te_{}.txt", i)).unwrap();
+        let fft_output = File::create(format!("fft_output_{}.txt", i)).unwrap();
+        // let fft_output_te = File::create(format!("fft_output_te_{}.txt", i)).unwrap();
+
+        let domain_size = 1 << log_degree;
+        let domain = EvaluationDomain::<Fr>::new(domain_size).unwrap();
+        let poly_evals = domain.fft(&rand_poly.coeffs);
+
+
+        let roots = domain.roots_of_unity(domain.group_gen);
+
+
+        for beta in roots.iter(){
+            writeln!(&roots_file, "{:x}", beta.to_bigint().to_biguint());
+        }
+    
+        writeln!(&omega, "{:?}", domain.group_gen);
+
+
+        for beta in rand_poly.iter(){
+            writeln!(&fft_input, "{:x}", beta.to_bigint().to_biguint());
+        }
+
+    
+        for beta in poly_evals.iter(){
+            writeln!(&fft_output, "{:x}", beta.to_bigint().to_biguint());
+        }
+
+    }
+    
+}
