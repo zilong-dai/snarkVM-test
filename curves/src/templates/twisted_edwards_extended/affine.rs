@@ -44,6 +44,7 @@ use serde::{Deserialize, Serialize};
 pub struct Affine<P: Parameters> {
     pub x: P::BaseField,
     pub y: P::BaseField,
+    #[serde(skip_serializing)]
     pub t: P::BaseField,
 }
 
